@@ -49,3 +49,16 @@ def test_manual_k_recovers_weak_led_next_to_ble():
     assert any(abs(p - 10) <= 2 for p in peaks)
     assert any(abs(p - 37) <= 3 for p in peaks)
     assert any(abs(p - 173) <= 3 for p in peaks)
+
+
+def test_always_on_source_gets_no_negative_current():
+    """An always-on ripple (like the ESP32's 70 Hz background) has no on/off switching for the fit to
+    measure. It must not come out with a negative current; it is reported as part of the baseline."""
+    mods = [dict(name="LED A", type="pwm", freq_hz=37, current_ma=3),
+            dict(name="LED B", type="pwm", freq_hz=173, current_ma=6),
+            dict(name="Hum", type="sine", freq_hz=70, current_ma=2)]
+    t, i, v, st, tr, names = separation.simulate_custom(mods, 60, 1, 2000, 0.25, 45)
+    import numpy as np
+    i = np.asarray(i) + 1.5 * np.sin(2 * np.pi * 70 * np.asarray(t))   # plus a source that never switches
+    r = separation.separate(t, i, v, 4)
+    assert all(c["current_on_ma"] >= 0 for c in r["components"])

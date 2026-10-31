@@ -137,9 +137,22 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
     # on/off activity per component, then total = baseline + sum(on_k * I_k) by least squares
     ON = np.array([_on_off(H[j]) for j in range(K)], float)
     idx = np.clip(np.searchsorted(tt, tg - tg[0]), 0, len(tt) - 1)
-    A = np.column_stack([np.ones_like(tg), ON[:, idx].T])
-    coef, *_ = np.linalg.lstsq(A, ig, rcond=None)
-    base_ma, i_on = float(coef[0]), coef[1:]
+    # Least squares with currents kept >= 0. A component whose fit goes negative (or that is on all
+    # the time) has no switching for the fit to measure: its current cannot be told apart from the
+    # baseline, so it is reported as 0 mA and labelled as part of the baseline.
+    active = [j for j in range(K) if 0.02 < ON[j].mean() < 0.98]
+    i_on = np.zeros(K)
+    while True:
+        A = np.column_stack([np.ones_like(tg)] + [ON[j, idx] for j in active])
+        coef, *_ = np.linalg.lstsq(A, ig, rcond=None)
+        neg = [j for j, c in zip(active, coef[1:]) if c < 0]
+        if not neg:
+            break
+        active = [j for j in active if j not in neg]
+    base_ma = float(coef[0])
+    for j, c in zip(active, coef[1:]):
+        i_on[j] = c
+    in_baseline = set(range(K)) - set(active)
     dur = float(tg[-1] - tg[0])
     total_avg = float(ig.mean())
 
@@ -159,7 +172,10 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
             "share_pct": round(100 * avg / total_avg, 2) if total_avg > 0 else None,
             "days_without": round(days_without, 2) if days_without else None,
             "low_freq": bool(fk[np.argmax(W[:, j])] < 6),   # step-like / switching edges: no frequency signature
+            "in_baseline": j in in_baseline,
         })
+        if j in in_baseline:
+            comps[-1]["module"] = f"Module {j + 1} · always-on (in baseline)"
     comps.sort(key=lambda c: c["peak_hz"])
 
     out = {
