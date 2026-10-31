@@ -34,3 +34,18 @@ def test_separation_on_recorded_sessions():
         avg = db.create_session("avg", None, "p", "hardware", 2000, 10)
         r = c.post("/api/analysis/separate", json={"source": "session", "session_id": avg["id"]})
         assert r.status_code == 400 and "Full rate" in r.json()["detail"]
+
+
+def test_manual_k_recovers_weak_led_next_to_ble():
+    """Real-board case: two ~3 mA LEDs next to 70 mA BLE bursts. With K fixed, BLE's harmonics must
+    not use up the components meant for the small LED."""
+    mods = [dict(name="LED A", type="pwm", freq_hz=37, current_ma=3),
+            dict(name="LED B", type="pwm", freq_hz=173, current_ma=3),
+            dict(name="BLE", type="pulse", freq_hz=10, current_ma=70, width_ms=3)]
+    t, i, v, st, tr, names = separation.simulate_custom(mods, 60, 0, 2000, 0.25, 45)
+    r = separation.separate(t, i, v, 3, st, tr, names=names)
+    peaks = sorted(round(c["peak_hz"]) for c in r["components"])
+    assert r["k"] == 3
+    assert any(abs(p - 10) <= 2 for p in peaks)
+    assert any(abs(p - 37) <= 3 for p in peaks)
+    assert any(abs(p - 173) <= 3 for p in peaks)

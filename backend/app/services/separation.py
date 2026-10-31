@@ -118,9 +118,21 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
         K, errs = choose_k(V)
     else:
         K, errs = k, {}
-    W, H, resid = nmf_kl(V, K)
-    n_raw = K
-    W, H, K = _merge_coactive(W, H)               # pieces of one module switch on and off together
+    if k is None:
+        W, H, resid = nmf_kl(V, K)
+        n_raw = K
+        W, H, K = _merge_coactive(W, H)           # pieces of one module switch on and off together
+    else:
+        # User fixed K. Fit extra components first: a strong broadband module (radio pulses with many
+        # harmonics) otherwise uses up several components and a weak narrow one (a small LED) gets none.
+        # Then merge pieces that switch on and off together, and merge the most alike until K remain.
+        for n_raw in (min(k + 3, 10), min(k + 2, 10), min(k + 4, 10), k):
+            W, H, resid = nmf_kl(V, n_raw)
+            W, H, K = _merge_coactive(W, H)
+            if K >= k:
+                break
+        while K > k:
+            W, H, K = _merge_closest(W, H)
 
     # on/off activity per component, then total = baseline + sum(on_k * I_k) by least squares
     ON = np.array([_on_off(H[j]) for j in range(K)], float)
@@ -195,6 +207,19 @@ def _merge_coactive(W, H, thr: float = 0.35):
     Wn = np.column_stack([W[:, g].sum(axis=1) for g in groups.values()])
     Hn = np.vstack([H[g].sum(axis=0) for g in groups.values()])
     return Wn, Hn, len(groups)
+
+
+def _merge_closest(W, H):
+    """Merge the two components whose on/off activity is most alike (used to reach a requested K)."""
+    K = W.shape[1]
+    ON = np.array([_on_off(H[j]) for j in range(K)], float)
+    C = np.nan_to_num(np.corrcoef(ON)) - 2 * np.eye(K)
+    a, b = np.unravel_index(np.argmax(C), C.shape)
+    a, b = min(a, b), max(a, b)
+    W, H = W.copy(), H.copy()
+    W[:, a] += W[:, b]
+    H[a] += H[b]
+    return np.delete(W, b, axis=1), np.delete(H, b, axis=0), K - 1
 
 
 def _on_off(h: np.ndarray) -> np.ndarray:
