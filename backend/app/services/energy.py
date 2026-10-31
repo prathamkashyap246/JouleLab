@@ -124,6 +124,9 @@ class EnergyEngine:
     buffer_seconds: float = 120.0
     function_names: dict[int, str] = field(default_factory=dict)
     gpio_names: dict[int, str] = field(default_factory=dict)
+    # Function whose average power is the "idle" floor (includes the measurement firmware's own
+    # timer/I2C/UART activity when profiling the STM32 itself). Empty = no baseline.
+    baseline_function: str = "idle_sleep"
 
     def __post_init__(self) -> None:
         self.reset()
@@ -259,6 +262,29 @@ class EnergyEngine:
             "sample_count": self.sample_count,
             "negative_current_samples": self.negative_current_samples,
             "unmatched_markers": self.unmatched_markers,
-            "functions": sorted((f.public() for f in self.functions.values()),
-                                key=lambda x: x["energy_mJ"], reverse=True),
+            "functions": self._functions_with_baseline(),
+            "baseline": self._baseline(),
         }
+
+    def _baseline(self) -> dict | None:
+        """Average power of the baseline function, if it has complete calls."""
+        for st in self.functions.values():
+            if st.name == self.baseline_function and st.complete_calls and st.total_duration_us:
+                return {"function": st.name, "source": st.source,
+                        "power_mW": round(st.total_energy_mj / (st.total_duration_us / 1e6), 4)}
+        return None
+
+    def _functions_with_baseline(self) -> list[dict]:
+        base = self._baseline()
+        out = []
+        for st in self.functions.values():
+            d = st.public()
+            if base is not None and st.complete_calls:
+                # energy the function costs on top of simply idling for the same time
+                floor_mj = base["power_mW"] * (st.total_duration_us / 1e6)
+                d["above_baseline_mJ"] = round(st.total_energy_mj - floor_mj, 6)
+                d["above_baseline_per_call_mJ"] = round((st.total_energy_mj - floor_mj) / st.complete_calls, 6)
+            else:
+                d["above_baseline_mJ"] = d["above_baseline_per_call_mJ"] = None
+            out.append(d)
+        return sorted(out, key=lambda x: x["energy_mJ"], reverse=True)

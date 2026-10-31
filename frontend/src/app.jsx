@@ -112,7 +112,7 @@ function LiveHardware({ capacity }) {
   const [status, setStatus] = useState(null), [ports, setPorts] = useState([]), [port, setPort] = useState(''), [manual, setManual] = useState('');
   const [baud, setBaud] = useState(115200), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [wsUp, setWsUp] = useState(false);
   const [metric, setMetric] = useState('current'), [windowS, setWindowS] = useState(10), [, setTick] = useState(0);
-  const [summary, setSummary] = useState(null), [sessions, setSessions] = useState([]), [sessName, setSessName] = useState(''), [events, setEvents] = useState([]);
+  const [summary, setSummary] = useState(null), [sessions, setSessions] = useState([]), [sessName, setSessName] = useState(''), [fullRate, setFullRate] = useState(false), [events, setEvents] = useState([]);
   const buf = useRef([]);
 
   const loadPorts = () => api('/hardware/ports').then(d => { setPorts(d.ports); setPort(p => p || (d.ports.find(x => x.is_stlink) || d.ports[0] || {}).device || ''); }).catch(e => setErr(e.message));
@@ -142,7 +142,7 @@ function LiveHardware({ capacity }) {
   const run = fn => async () => { setBusy(true); setErr(''); try { const s = await fn(); if (s && s.state) setStatus(s); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
   const doConnect = run(() => { buf.current = []; return post('/hardware/connect', { port: manual.trim() || port || 'auto', baudrate: +baud }); });
   const doDisconnect = run(async () => { const s = await post('/hardware/disconnect'); loadSessions(); return s; });
-  const startSession = run(async () => { await post('/sessions/start', { name: sessName }); setSessName(''); loadSessions(); return api('/hardware/status'); });
+  const startSession = run(async () => { await post('/sessions/start', { name: sessName, full_rate: fullRate }); setSessName(''); loadSessions(); return api('/hardware/status'); });
   const stopSession = run(async () => { await post('/sessions/stop'); loadSessions(); return api('/hardware/status'); });
 
   const st = status || { state: wsUp ? 'disconnected' : 'offline' };
@@ -211,19 +211,22 @@ function LiveHardware({ capacity }) {
       <div>
         <div className="row"><h3>Energy by function</h3><span className="mono small">{summary ? (summary.scope === 'session' ? 'This session' : 'Since connect') : ''}</span></div>
         {!fns.length ? <p className="mono small">No function windows yet. The firmware's JL_FUNCTION_START/END markers or GPIO edges on A0/A1 appear here.</p> :
-          <table className="hw-table mono"><thead><tr><th>Function</th><th>Timing</th><th>Calls</th><th>Avg time</th><th>Energy/call</th><th>Avg P</th><th>Max P</th></tr></thead>
+          <table className="hw-table mono"><thead><tr><th>Function</th><th>Timing</th><th>Calls</th><th>Avg time</th><th>Energy/call</th><th>Avg P</th><th>Max P</th><th title="Energy per call minus what the idle baseline would use in the same time">Above idle</th></tr></thead>
             <tbody>{fns.map(x => <tr key={x.function_name + x.source}><td>{x.function_name}</td>
               <td><span className={'src ' + x.source}>{x.source === 'gpio' ? 'GPIO-timed' : 'Firmware marker'}</span></td>
               <td>{x.complete_calls}{x.incomplete_calls ? <em title="windows with lost samples are not integrated"> +{x.incomplete_calls}✕</em> : ''}</td>
               <td>{x.avg_duration_ms != null ? f(x.avg_duration_ms, 2) + ' ms' : '–'}</td>
               <td>{x.energy_per_call_mJ != null ? f(x.energy_per_call_mJ, 4) + ' mJ' : '–'}</td>
               <td>{x.average_power_mW != null ? f(x.average_power_mW, 1) + ' mW' : '–'}</td>
-              <td>{f(x.max_power_mW, 1)} mW</td></tr>)}</tbody></table>}
+              <td>{f(x.max_power_mW, 1)} mW</td>
+              <td>{x.above_baseline_per_call_mJ != null ? f(x.above_baseline_per_call_mJ, 4) + ' mJ' : '–'}</td></tr>)}</tbody></table>}
+        {summary && summary.baseline && <p className="mono small hw-msg">Idle baseline: {summary.baseline.function} at {f(summary.baseline.power_mW, 2)} mW. When the INA219 measures the STM32 itself, this floor includes the measurement firmware's own timer, I2C and UART work; "Above idle" removes it.</p>}
       </div>
       <aside className="hw-side">
         <div className="row"><h3>Session</h3>{st.session && <span className="mono small rec">● REC</span>}</div>
         {st.session ? <><p className="mono small">{st.session.name}</p><button className="chip2" onClick={stopSession} disabled={busy}>Stop &amp; save</button></>
           : <><input value={sessName} onChange={e => setSessName(e.target.value)} placeholder="Session name (optional)" disabled={!st.connected} />
+            <label className="mono small hw-check" title="Store every sample instead of 1-in-10 averages. Needed for Module separation on the recording; about 10x the disk space."><input type="checkbox" checked={fullRate} onChange={e => setFullRate(e.target.checked)} /> Full rate (for module separation)</label>
             <button className="chip2" onClick={startSession} disabled={busy || !st.connected}>Start session</button>
             {!st.connected && <p className="mono small">Sessions need live data.</p>}</>}
         <ul className="hw-sessions mono">{sessions.map(s => <li key={s.id}><span>#{s.id} {s.name}</span><span>{s.status === 'active' ? 'recording' : s.energy_mj != null ? f(s.energy_mj, 2) + ' mJ' : s.status}{s.source === 'test' ? ' · TEST' : ''}</span></li>)}</ul>
@@ -362,12 +365,14 @@ function Separation({ capacity }) {
   const [logText, setLogText] = useState(''), [fileName, setFileName] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [res, setRes] = useState(null);
   const [mods, setMods] = useState(VR_PRESETS['Demo board (3 modules)'].map(x => ({ ...x }))), [noise, setNoise] = useState(0.25), [period, setPeriod] = useState(2000);
   const loadFile = file => { if (!file) return; setFileName(file.name); file.text().then(setLogText); };
+  const [sessList, setSessList] = useState([]), [sessionId, setSessionId] = useState('');
+  useEffect(() => { if (mode === 'session') api('/sessions?limit=50').then(d => { setSessList(d.sessions); if (!sessionId && d.sessions[0]) setSessionId(String(d.sessions[0].id)); }).catch(e => setErr(e.message)); }, [mode]);
   const run = async () => {
     setBusy(true); setErr('');
     try {
       setRes(await post('/analysis/separate', { source: mode, seconds: mode === 'virtual' ? Math.min(+seconds, 120) : +seconds, seed: +seed, k: kSel === 'auto' ? null : +kSel,
         log_text: mode === 'log' ? logText : null, capacity_mah: capacity, modules: mode === 'virtual' ? mods : [],
-        noise_ma: +noise, sample_period_us: mode === 'virtual' ? period : 2000 }));
+        noise_ma: +noise, sample_period_us: mode === 'virtual' ? period : 2000, session_id: mode === 'session' ? +sessionId : null }));
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const comps = res ? res.components : [], hasScore = res && res.scoring;
@@ -377,8 +382,11 @@ function Separation({ capacity }) {
     <div className="hw-controls">
       <label><span className="mono small">DATA</span>
         <select value={mode} onChange={e => setMode(e.target.value)} disabled={busy}>
-          <option value="simulated">Simulated demo (no hardware)</option><option value="virtual">Virtual room (design your own signals)</option><option value="live">Live buffer from the board</option><option value="log">Upload a log file</option></select></label>
-      {mode !== 'log' && <label><span className="mono small">{mode === 'live' ? 'LAST SECONDS' : 'RUN LENGTH (S)'}</span><input type="number" min="10" max="600" value={seconds} onChange={e => setSeconds(e.target.value)} disabled={busy} /></label>}
+          <option value="simulated">Simulated demo (no hardware)</option><option value="virtual">Virtual room (design your own signals)</option><option value="live">Live buffer from the board</option><option value="log">Upload a log file</option><option value="session">Recorded session (full rate)</option></select></label>
+      {mode === 'session' && <label><span className="mono small">SESSION</span><select value={sessionId} onChange={e => setSessionId(e.target.value)} disabled={busy}>
+        {!sessList.length && <option value="">No sessions yet</option>}
+        {sessList.map(x => <option key={x.id} value={x.id}>#{x.id} {x.name}{x.source === 'test' ? ' · TEST' : ''}</option>)}</select></label>}
+      {mode !== 'log' && mode !== 'session' && <label><span className="mono small">{mode === 'live' ? 'LAST SECONDS' : 'RUN LENGTH (S)'}</span><input type="number" min="10" max="600" value={seconds} onChange={e => setSeconds(e.target.value)} disabled={busy} /></label>}
       {(mode === 'simulated' || mode === 'virtual') && <label><span className="mono small">SEED</span><input type="number" min="0" max="9999" value={seed} onChange={e => setSeed(e.target.value)} disabled={busy} /></label>}
       {mode === 'log' && <label><span className="mono small">LOG FILE (.TXT / .CSV)</span><input type="file" accept=".txt,.csv,.log" onChange={e => loadFile(e.target.files[0])} disabled={busy} /></label>}
       <label><span className="mono small">MODULES (K)</span>

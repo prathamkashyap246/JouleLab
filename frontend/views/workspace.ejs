@@ -63,11 +63,18 @@
       <div class="ctabs">
         <button class="on" data-con="out">Output</button>
         <button data-con="mon">Serial monitor</button>
+        <button data-con="log" title="A second board's text output (e.g. ESP32 logs) while the NUCLEO measures">Log port</button>
         <span class="mono small" id="jobstate"></span>
         <button class="chip2" id="conclear">Clear</button>
       </div>
       <pre class="con mono" id="con-out">Compiler output will appear here.</pre>
       <pre class="con mono" id="con-mon" hidden>Serial monitor will display real board output.</pre>
+      <div class="logbar mono" id="logbar" hidden>
+        <span>LOG PORT</span><select id="logportsel"></select>
+        <select id="logbaud"><option>115200</option><option>9600</option><option>57600</option><option>230400</option><option>460800</option><option>921600</option></select>
+        <button class="chip2" id="logconnect" type="button">Open log port</button><span id="logstate"></span>
+      </div>
+      <pre class="con mono" id="con-log" hidden>A second board's text (e.g. ESP32 Serial.println) appears here, while the main connection keeps measuring.</pre>
       <form class="gdb mono" id="termform" hidden>
         <span>&gt;</span><input id="termcmd" autocomplete="off" spellcheck="false" placeholder="Type to the board (sent through the serial port)">
         <select id="termeol" title="Line ending"><option value="\n">LF</option><option value="\r\n">CR+LF</option><option value="\r">CR</option><option value="">none</option></select>

@@ -136,3 +136,22 @@ def test_session_saved_with_summary(tmp_path, pty_port):
         await hw.disconnect()
 
     asyncio.run(go())
+
+
+def test_full_rate_session_feeds_module_separation(tmp_path, pty_port):
+    master, path = pty_port
+    hw = manager(tmp_path, allow_test=True)
+
+    async def go():
+        await hw.connect(path, 115200)
+        os.write(master, stream(50, flags=1))
+        assert await asyncio.to_thread(wait_for, lambda: hw.status()["connected"])
+        sess = hw.start_session("full", None, full_rate=True)
+        assert sess["store_decimation"] == 1
+        os.write(master, stream(400, flags=1, start_seq=50, t0=1_000_000 + 50 * 2000)[11:])
+        assert await asyncio.to_thread(wait_for, lambda: hw._session_engine.sample_count >= 390)
+        done = hw.stop_session()
+        assert done["stored_samples"] >= 390  # one row per sample
+        await hw.disconnect()
+
+    asyncio.run(go())

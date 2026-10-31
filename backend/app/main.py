@@ -11,6 +11,7 @@ from app.api.routes import analysis, debugging, development, firmware, hardware,
 from app.core.config import load_proxy_key, settings
 from app.database.database import Database
 from app.hardware.connection_manager import HardwareError, HardwareManager
+from app.hardware.log_port import LogPort
 from app.services.build_manager import BuildManager, JobRunner
 from app.services.debug_manager import DebugManager
 from app.services.measurement_store import LiveHub, LiveStore
@@ -45,13 +46,17 @@ async def lifespan(app: FastAPI):
     monitor.start()
     retention = asyncio.create_task(_retention_loop(db))
     app.state.db, app.state.hardware, app.state.hub, app.state.monitor = db, hw, hub, monitor
+    log_monitor = MonitorHub()
+    log_monitor.start()
+    logport = LogPort(hw, log_monitor, settings.auto_reconnect)
+    app.state.log_monitor, app.state.logport = log_monitor, logport
 
     pio = PlatformIO(settings)
     jobs = JobRunner(settings.dev_job_timeout_s)
     jobs.attach_loop(asyncio.get_running_loop())
     app.state.pio, app.state.jobs = pio, jobs
     app.state.builder = BuildManager(pio, jobs)
-    app.state.uploader = UploadManager(pio, jobs, hw)
+    app.state.uploader = UploadManager(pio, jobs, hw, logport)
     app.state.debugger = DebugManager(pio, jobs)
 
     if settings.hardware_mode == "serial":
@@ -64,6 +69,8 @@ async def lifespan(app: FastAPI):
     yield
     retention.cancel()
     await jobs.stop()
+    await logport.disconnect()
+    await log_monitor.stop()
     await monitor.stop()
     await hub.stop()
     await hw.disconnect()
@@ -190,3 +197,21 @@ async def serial_monitor(websocket: WebSocket):
         pass
     finally:
         monitor.unsubscribe(queue)
+
+
+@app.websocket("/ws/log-monitor")
+async def log_monitor_ws(websocket: WebSocket):
+    """Text from the second (log) port: {"type": "snapshot", text, status} then {"type": "text", text}."""
+    if not is_local(websocket):
+        await websocket.close(code=1008, reason=LOCAL_ONLY_MESSAGE[:120])
+        return
+    mon = websocket.app.state.log_monitor
+    await websocket.accept()
+    queue = mon.subscribe()
+    try:
+        await _pump(websocket, queue, {"type": "snapshot", "text": mon.backlog(),
+                                       "status": websocket.app.state.logport.status()})
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        mon.unsubscribe(queue)

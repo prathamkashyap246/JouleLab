@@ -91,6 +91,7 @@ class HardwareManager:
         self.store = store
         self.monitor = monitor or MonitorHub()
         self._suspended: tuple[str, int, str | None] | None = None
+        self.other_owner = lambda device: False  # set by LogPort: never open its port twice
         self._lock = threading.RLock()
         self._reader: SerialReader | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -110,7 +111,8 @@ class HardwareManager:
         self._session_base: dict = {}
 
     def _engine(self) -> EnergyEngine:
-        return EnergyEngine(self.settings.live_buffer_seconds, self.settings.function_names, self.settings.gpio_names)
+        return EnergyEngine(self.settings.live_buffer_seconds, self.settings.function_names, self.settings.gpio_names,
+                            self.settings.baseline_function)
 
     def _new_pipeline(self) -> None:
         self.decoder = PacketDecoder(on_discard=self.monitor.push_bytes)
@@ -142,6 +144,8 @@ class HardwareManager:
                 raise HardwareError(str(e), 404) from e
         elif not port_exists(device):
             raise HardwareError(f"Serial port {device} was not found. Refresh the list and check the USB cable.", 404)
+        if self.other_owner(device):
+            raise HardwareError(f"{device} is open as the log port. Close it there first, or pick the other board.", 409)
 
         try:
             ser = await asyncio.to_thread(open_port, device, baud)
@@ -370,7 +374,7 @@ class HardwareManager:
              w.get("reason")) for w in windows])
 
     # ---- sessions ------------------------------------------------------------
-    def start_session(self, name: str, notes: str | None) -> dict:
+    def start_session(self, name: str, notes: str | None, full_rate: bool = False) -> dict:
         with self._lock:
             if self.session:
                 raise HardwareError(f"Session {self.session['id']} is already running. Stop it first.", 409)
@@ -379,9 +383,9 @@ class HardwareManager:
                                     409)
             source = "test" if self.stream.state.test_source else "hardware"
             self.session = self.db.create_session(name, notes, self.port, source, self.stream.state.period_us,
-                                                  self.settings.db_store_decimation)
+                                                  1 if full_rate else self.settings.db_store_decimation)
             self._session_engine = self._engine()
-            self._decimator = _Decimator(self.session["id"], self.settings.db_store_decimation,
+            self._decimator = _Decimator(self.session["id"], 1 if full_rate else self.settings.db_store_decimation,
                                          self.settings.db_max_samples_per_session)
             self._session_base = {"lost": self.stream.stats.lost_samples,
                                   "errors": self.decoder.stats.packet_errors}

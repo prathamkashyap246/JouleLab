@@ -280,3 +280,8 @@ input[type=range]{width:100%;accent-color:var(--acc);margin:16px 0 6px}
 .login .devbar{max-width:460px;display:flex;flex-direction:column;gap:16px}
 .login input{padding:12px 14px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:16px}
 .login-err{color:#d9472f}
+.hw-check{display:flex;align-items:center;gap:8px;cursor:pointer}
+.logbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 22px;border-bottom:1px solid #24463d;color:#86a79d;font-size:12px}
+.logbar[hidden]{display:none}
+.logbar select{background:#0a1714;border:1px solid #24463d;border-radius:8px;padding:8px;color:#d8efe7;font:inherit;font-size:12px;max-width:280px}
+.logbar .chip2{background:transparent;color:#d8efe7;border-color:#24463d;padding:8px 12px;font-size:12px}

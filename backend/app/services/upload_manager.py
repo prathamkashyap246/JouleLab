@@ -18,10 +18,11 @@ from app.services.platformio_manager import DevError, PlatformIO, get_board
 
 
 class UploadManager:
-    def __init__(self, pio: PlatformIO, runner: JobRunner, hardware: HardwareManager) -> None:
+    def __init__(self, pio: PlatformIO, runner: JobRunner, hardware: HardwareManager, logport=None) -> None:
         self.pio = pio
         self.runner = runner
         self.hardware = hardware
+        self.logport = logport  # optional second (text-only) connection
 
     async def upload(self, board_id: str, port: str | None, source: str | None) -> Job:
         board = get_board(board_id)
@@ -41,21 +42,25 @@ class UploadManager:
 
         saved = self.pio.write_main(board, source) if source is not None else None
 
-        lent = False
-        if board.serial_upload and self.hardware.holds_port(port):
-            lent = await self.hardware.suspend(f"Serial port {port} lent to the {board.name} upload; "
-                                               "it reopens automatically afterwards.")
+        lent, owner = False, None
+        if board.serial_upload:
+            for candidate in (self.hardware, self.logport):
+                if candidate is not None and candidate.holds_port(port):
+                    owner = candidate
+            if owner is not None:
+                lent = await owner.suspend(f"Serial port {port} lent to the {board.name} upload; "
+                                           "it reopens automatically afterwards.")
 
         async def after(job: Job) -> None:
             if lent:
-                st = await self.hardware.resume()
+                st = await owner.resume()
                 self.runner.note(f"Serial monitor: {st['message']}", job)
 
         try:
             job = self.runner.start("upload", board.id, args, str(project), on_exit=after)
         except DevError:
             if lent:
-                await self.hardware.resume()
+                await owner.resume()
             raise
         if saved is not None:
             self.runner.note(f"Saved the editor to {saved.relative_to(project)}", job)

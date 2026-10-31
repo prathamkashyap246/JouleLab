@@ -15,3 +15,22 @@ def test_parse_profiler_log_format():
     text = "#VBUS,4.98\n#CFG,0x199D\nE,0,1\nS,532,450\nS,1064,451\n"
     t, i, v, states, sim = separation.parse_log(text)
     assert v == 4.98 and len(t) == 2 and abs(i[0] - 45.0) < 1e-9 and states is not None and not sim
+
+
+def test_separation_on_recorded_sessions():
+    from fastapi.testclient import TestClient
+
+    from app.database.database import SAMPLE_INSERT
+    from app.main import app
+    with TestClient(app) as c:
+        db = c.app.state.hardware.db
+        t, i, v, _, _ = separation.simulate(20, seed=1, sample_period_us=2000)
+        full = db.create_session("full", None, "p", "test", 2000, 1)
+        db.enqueue(SAMPLE_INSERT, [(full["id"], k, int(t[k] * 1e6), v, float(i[k]), v * float(i[k]), 0.0, None, 1)
+                                   for k in range(len(t))])
+        db.flush()
+        r = c.post("/api/analysis/separate", json={"source": "session", "session_id": full["id"], "k": 3})
+        assert r.status_code == 200 and r.json()["k"] == 3 and r.json()["simulated"] is True
+        avg = db.create_session("avg", None, "p", "hardware", 2000, 10)
+        r = c.post("/api/analysis/separate", json={"source": "session", "session_id": avg["id"]})
+        assert r.status_code == 400 and "Full rate" in r.json()["detail"]

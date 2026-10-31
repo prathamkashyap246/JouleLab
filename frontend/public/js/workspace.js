@@ -110,7 +110,8 @@ $('ai').onclick = aiSuggest;
 // talks to a serial port directly.
 const DEV = '/backend/api/development', HW = '/backend/api/hardware';
 const dev = { boards: [], job: null, monitorPort: null, monitorState: 'disconnected', pio: false, manualPorts: [] };
-const conOut = $('con-out'), conMon = $('con-mon');
+const conOut = $('con-out'), conMon = $('con-mon'), conLog = $('con-log');
+const logp = { port: null, state: 'disconnected' };
 const devBoard = () => dev.boards.find(b => b.id === $('devboard').value);
 async function devApi(path, body, method) {
   const r = await fetch(path, body !== undefined || method ? { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) } : undefined);
@@ -129,10 +130,11 @@ function conAppend(el, text, cls) {
 const lineClass = t => t.startsWith('[JouleLab]') ? 'c-jl' : /\berror\b|failed|FAILED|undefined reference/i.test(t) ? 'c-err' : /warning/i.test(t) ? 'c-warn' : /SUCCESS|succeeded/.test(t) ? 'c-ok' : '';
 function showCon(which) {
   document.querySelectorAll('.ctabs [data-con]').forEach(b => b.classList.toggle('on', b.dataset.con === which));
-  conOut.hidden = which !== 'out'; conMon.hidden = which !== 'mon'; $('termform').hidden = which !== 'mon';
+  conOut.hidden = which !== 'out'; conMon.hidden = which !== 'mon'; conLog.hidden = which !== 'log';
+  $('termform').hidden = which === 'out'; $('logbar').hidden = which !== 'log'; dev.tab = which;
 }
 document.querySelectorAll('.ctabs [data-con]').forEach(b => b.addEventListener('click', () => showCon(b.dataset.con)));
-$('conclear').onclick = () => { const el = conOut.hidden ? conMon : conOut; el.textContent = ''; el.dataset.fresh = '1'; };
+$('conclear').onclick = () => { const el = { out: conOut, mon: conMon, log: conLog }[dev.tab || 'out']; el.textContent = ''; el.dataset.fresh = '1'; };
 
 function devRender() {
   const b = devBoard(), busy = dev.job && dev.job.status === 'running';
@@ -171,6 +173,9 @@ async function loadPorts() {
       '<option value="__other">Type a port…</option>';
     const pick = [cur, d.monitor_port, (d.ports.find(p => p.is_stlink) || {}).device].find(x => x && x !== '__other' && (listed.has(x) || extra.includes(x)));
     if (pick) $('devport').value = pick;
+    const lcur = $('logportsel').value;
+    $('logportsel').innerHTML = '<option value="">— choose —</option>' + opts.join('');
+    if (logp.port) $('logportsel').value = logp.port; else if (lcur) $('logportsel').value = lcur;
   } catch (e) { $('devport').innerHTML = '<option value="">Backend offline</option>'; }
   devRender();
 }
@@ -201,6 +206,15 @@ $('upload').onclick = () => runJob('upload');
 $('run').onclick = async () => { dev.runAfter = true; await runJob('upload'); if (!dev.job || dev.job.status !== 'running') dev.runAfter = false; };
 async function openTerminalAfterRun() {
   const b = devBoard(), open = dev.monitorPort && !['disconnected', 'error'].includes(dev.monitorState);
+  const uport = $('devport').value;
+  if (b && b.needs_upload_port && open && dev.monitorPort !== uport) {
+    // the main connection is busy measuring another board: show this board on the log port
+    showCon('log');
+    if (logp.port === uport && logp.state !== 'disconnected') { conAppend(conLog, `\n[JouleLab] Program flashed. Output from ${uport}:\n`, 'c-jl'); return; }
+    try { const st = await devApi(HW + '/logport/connect', { port: uport, baudrate: 115200 }); logp.port = st.port; logp.state = st.state; $('logportsel').value = uport; }
+    catch (e) { conAppend(conLog, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+    renderLog(); return;
+  }
   showCon('mon');
   if (open) { conAppend(conMon, `\n[JouleLab] Program flashed. Output from ${dev.monitorPort}:\n`, 'c-jl'); return; }
   const port = $('devport').value;
@@ -216,8 +230,8 @@ async function openTerminalAfterRun() {
 $('termform').addEventListener('submit', async e => {
   e.preventDefault();
   const text = $('termcmd').value;
-  try { await devApi(HW + '/send', { text, line_ending: $('termeol').value.replace('\\r', '\r').replace('\\n', '\n') }); $('termcmd').value = ''; }
-  catch (err) { conAppend(conMon, '\n[JouleLab] ' + err.message + '\n', 'c-err'); }
+  try { await devApi(HW + (dev.tab === 'log' ? '/logport/send' : '/send'), { text, line_ending: $('termeol').value.replace('\\r', '\r').replace('\\n', '\n') }); $('termcmd').value = ''; }
+  catch (err) { conAppend(dev.tab === 'log' ? conLog : conMon, '\n[JouleLab] ' + err.message + '\n', 'c-err'); }
 });
 $('debug').onclick = () => runJob('debug');
 $('stop').onclick = async () => { try { await devApi(DEV + '/stop', {}); } catch (e) { conAppend(conOut, '\n[JouleLab] ' + e.message + '\n', 'c-err'); } };
@@ -281,3 +295,26 @@ wsConnect('/backend/ws/serial-monitor', m => {
 });
 setInterval(() => fetch(HW + '/status').then(r => r.ok ? r.json() : null).then(s => { if (s) { dev.monitorPort = s.port; dev.monitorState = s.state; devRender(); } }).catch(() => { }), 2000);
 loadBoards(); loadPorts();
+
+
+// ---- Log port: a second, text-only board connection ----
+function renderLog() {
+  const open = logp.port && !['disconnected', 'error'].includes(logp.state);
+  $('logconnect').textContent = open ? 'Close log port' : 'Open log port';
+  $('logportsel').disabled = $('logbaud').disabled = !!open;
+  $('logstate').textContent = open ? `${logp.state} · ${logp.port}` : '';
+}
+$('logconnect').onclick = async () => {
+  const open = logp.port && !['disconnected', 'error'].includes(logp.state);
+  try {
+    const st = open ? await devApi(HW + '/logport/disconnect', {})
+      : await devApi(HW + '/logport/connect', { port: $('logportsel').value, baudrate: +$('logbaud').value });
+    logp.port = st.port; logp.state = st.state;
+  } catch (e) { conAppend(conLog, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+  renderLog(); loadPorts();
+};
+wsConnect('/backend/ws/log-monitor', m => {
+  if (m.type === 'snapshot') { if (m.text) { conLog.textContent = ''; conLog.dataset.fresh = '1'; conAppend(conLog, m.text); } if (m.status) { logp.port = m.status.port; logp.state = m.status.state; renderLog(); } }
+  else if (m.type === 'text') conAppend(conLog, m.text);
+});
+setInterval(() => fetch(HW + '/logport/status').then(r => r.ok ? r.json() : null).then(s => { if (s) { logp.port = s.port; logp.state = s.state; renderLog(); } }).catch(() => { }), 2000);

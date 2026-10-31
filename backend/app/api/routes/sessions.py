@@ -10,7 +10,7 @@ router = APIRouter()
 @router.post("/start", summary="Start recording a measurement session (board must be streaming)")
 async def start(body: SessionStart, request: Request):
     name = body.name.strip() or "Session " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return request.app.state.hardware.start_session(name, body.notes)
+    return request.app.state.hardware.start_session(name, body.notes, body.full_rate)
 
 
 @router.post("/stop", summary="Stop the running session and save its energy summary")

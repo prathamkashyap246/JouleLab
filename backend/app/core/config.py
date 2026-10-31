@@ -46,6 +46,8 @@ class Settings:
     function_names: dict[int, str] = field(default_factory=lambda: _id_map(
         "FUNCTION_NAMES", "1:sensor_read,2:compute,3:send_data,4:idle_sleep"))
     gpio_names: dict[int, str] = field(default_factory=lambda: _id_map("GPIO_MARKER_NAMES", "0:gpio_marker_0,1:gpio_marker_1"))
+    # "Above idle" energy per function uses this function's average power as the floor.
+    baseline_function: str = os.getenv("BASELINE_FUNCTION", "idle_sleep").strip()
 
     live_buffer_seconds: float = float(os.getenv("LIVE_BUFFER_SECONDS", "120"))
     ws_broadcast_hz: float = float(os.getenv("WS_BROADCAST_HZ", "20"))

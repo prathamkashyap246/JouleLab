@@ -101,3 +101,18 @@ def test_negative_current_kept_and_flagged():
     e = EnergyEngine()
     e.add(mk(0, 0, 3.3, -1.0, contiguous=False))
     assert e.summary()["negative_current_samples"] == 1
+
+
+def test_energy_above_idle_baseline():
+    e = EnergyEngine(function_names={1: "work", 4: "idle_sleep"})
+    for k in range(41):
+        mw = 10.0 if k < 20 else 2.0  # work at 10 mW for 0-20 ms, idle at 2 mW for 20-40 ms
+        e.add(mk(k, k * 1000, 1.0, mw, contiguous=k > 0))
+    e.marker({"source": "firmware", "start": True, "function_id": 1, "t_us": 0})
+    e.marker({"source": "firmware", "start": False, "function_id": 1, "t_us": 19000})
+    e.marker({"source": "firmware", "start": True, "function_id": 4, "t_us": 21000})
+    e.marker({"source": "firmware", "start": False, "function_id": 4, "t_us": 40000})
+    s = e.summary()
+    assert s["baseline"]["function"] == "idle_sleep" and s["baseline"]["power_mW"] == pytest.approx(2.0)
+    work = [f for f in s["functions"] if f["function_name"] == "work"][0]
+    assert work["above_baseline_per_call_mJ"] == pytest.approx((10.0 - 2.0) * 0.019)

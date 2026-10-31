@@ -19,6 +19,8 @@ class ConnectRequest(BaseModel):
 class SessionStart(BaseModel):
     name: str = Field(default="", max_length=100)
     notes: str | None = Field(default=None, max_length=1000)
+    full_rate: bool = Field(default=False, description="Store every sample (needed for module separation on the "
+                                                        "recording; about 10x the disk space)")
 
 
 class OptimizeRequest(BaseModel):

@@ -225,3 +225,42 @@ def test_terminal_send_reaches_the_board(client):
         client.post("/api/hardware/disconnect")
         os.close(master)
         os.close(slave)
+
+
+def test_two_boards_measurement_port_and_log_port(client, monkeypatch):
+    """NUCLEO on the main connection, ESP32 logs on the log port; upload to the ESP32 borrows the log port."""
+    import pty
+    import tty
+    fds = []
+    try:
+        paths = []
+        for _ in range(2):
+            m, s = pty.openpty()
+            tty.setraw(s)
+            fds += [m, s]
+            paths.append(os.ttyname(s))
+        nucleo, esp = paths
+        assert client.post("/api/hardware/connect", json={"port": nucleo}).status_code == 200
+        r = client.post("/api/hardware/logport/connect", json={"port": nucleo})
+        assert r.status_code == 409  # never the same port twice
+        assert client.post("/api/hardware/logport/connect", json={"port": esp}).json()["state"] == "open"
+        assert client.post("/api/hardware/connect", json={"port": esp}).status_code == 409  # already open
+        os.write(fds[2], b"esp32 log line\n")
+        with client.websocket_connect("/ws/log-monitor") as ws:
+            text = ws.receive_json()["text"]
+            end = time.time() + 5
+            while "esp32 log line" not in text and time.time() < end:
+                text += ws.receive_json().get("text", "")
+        assert "esp32 log line" in text
+        monkeypatch.setenv("FAKE_PIO_SLEEP", "1.0")
+        assert client.post("/api/development/upload", json={"board": "esp32dev", "port": esp}).status_code == 200
+        assert client.get("/api/hardware/logport/status").json()["state"] == "paused"
+        assert client.get("/api/hardware/status").json()["port"] == nucleo  # measurement port untouched
+        assert wait_job(client)["status"] == "succeeded"
+        time.sleep(0.5)
+        assert client.get("/api/hardware/logport/status").json()["state"] == "open"
+    finally:
+        client.post("/api/hardware/logport/disconnect")
+        client.post("/api/hardware/disconnect")
+        for fd in fds:
+            os.close(fd)

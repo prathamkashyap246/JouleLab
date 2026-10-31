@@ -12,7 +12,8 @@ router = APIRouter()
 
 
 class SeparateRequest(BaseModel):
-    source: Literal["live", "log", "simulated", "virtual"] = "simulated"
+    source: Literal["live", "log", "simulated", "virtual", "session"] = "simulated"
+    session_id: int | None = Field(default=None, ge=1, description="source=session: a recorded session")
     seconds: float = Field(default=60, ge=5, le=600, description="live: how much recent data; simulated: run length")
     k: int | None = Field(default=None, ge=1, le=8, description="number of modules; omit to detect automatically")
     log_text: str | None = Field(default=None, max_length=30_000_000)
@@ -43,6 +44,24 @@ async def separate(req: SeparateRequest, request: Request):
                 raise HTTPException(400, "Upload a log file first.")
             t, i, v, states, simulated = separation.parse_log(req.log_text)
             truth = None
+        elif req.source == "session":
+            db = request.app.state.hardware.db
+            sess = db.get_session(req.session_id) if req.session_id else None
+            if not sess:
+                raise HTTPException(404, "Choose a recorded session.")
+            if sess["store_decimation"] != 1:
+                raise HTTPException(400, f"Session {sess['id']} was stored averaged (1 row per "
+                                         f"{sess['store_decimation']} samples), which removes the frequency "
+                                         "signatures. Record a new session with 'Full rate' ticked.")
+            db.flush()
+            rows = db.session_samples(sess["id"], 2_000_000)
+            if len(rows) < 200:
+                raise HTTPException(409, "This session has too few stored samples.")
+            t = np.array([r["t_us"] for r in rows], float) / 1e6
+            i = np.array([r["current_ma"] for r in rows], float)
+            v = float(np.median([r["voltage_v"] for r in rows]))
+            states, truth = None, None
+            simulated = sess["source"] == "test"
         else:
             hw = request.app.state.hardware
             rows = hw.store.history(req.seconds, 400_000)

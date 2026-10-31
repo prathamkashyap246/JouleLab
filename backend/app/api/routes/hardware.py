@@ -41,3 +41,29 @@ class SendBody(BaseModel):
              dependencies=[Depends(require_local)])
 async def send(body: SendBody, request: Request):
     return await request.app.state.hardware.send(body.text, body.line_ending)
+
+
+# ---- second, text-only connection (e.g. ESP32 logs while the NUCLEO measures) ----
+class LogConnect(BaseModel):
+    port: str = Field(max_length=260)
+    baudrate: int | None = None
+
+
+@router.get("/logport/status", summary="The text-only log port")
+async def logport_status(request: Request):
+    return request.app.state.logport.status()
+
+
+@router.post("/logport/connect", summary="Open a second port for text logs (never the measurement port)")
+async def logport_connect(body: LogConnect, request: Request):
+    return await request.app.state.logport.connect(body.port, body.baudrate)
+
+
+@router.post("/logport/disconnect")
+async def logport_disconnect(request: Request):
+    return await request.app.state.logport.disconnect()
+
+
+@router.post("/logport/send", dependencies=[Depends(require_local)], summary="Send a line to the log port")
+async def logport_send(body: SendBody, request: Request):
+    return await request.app.state.logport.send(body.text, body.line_ending)
