@@ -143,8 +143,30 @@ class PlatformIO:
             raise DevError("The editor is empty. Open the board's project file or paste code first.")
         if len(source) > self.settings.dev_max_source_chars:
             raise DevError(f"Source is larger than {self.settings.dev_max_source_chars} characters.", 413)
+        check_board_matches(board, source)
         path = self.main_path(board)
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(source, encoding="utf-8", newline="\n")
         os.replace(tmp, path)
         return path
+
+
+_ARDUINO_HINTS = ("#include <arduino.h>", "#include <bledevice.h>", "#include <wifi.h>", "#include <wire.h>",
+                  "serial.begin(", "digitalwrite(", "ledcattach(", "ledcwrite(", "esp_sleep_", "bledevice::")
+_STM32_HINTS = ("stm32f4xx_hal.h", "hal_init(", "systemclock_config(", "main.h\"", "huart", "hi2c")
+
+
+def check_board_matches(board: Board, source: str) -> None:
+    """Refuse to save code written for a different board into this board's project.
+
+    Saving an ESP32 sketch into the NUCLEO project (or the reverse) overwrites that project's main
+    file, and every later Verify of that board then fails with a missing-header error."""
+    low = source.lower()
+    looks_arduino = any(h in low for h in _ARDUINO_HINTS) or ("void setup(" in low and "void loop(" in low)
+    looks_stm32 = any(h in low for h in _STM32_HINTS)
+    if board.language == "c" and looks_arduino and not looks_stm32:
+        raise DevError(f"This looks like an Arduino/ESP32 sketch, but the selected board is {board.name}. "
+                       "Choose 'ESP32 DevKit' (or 'Arduino Uno R3') in the Board menu. Nothing was saved.", 422)
+    if board.language == "arduino" and looks_stm32 and not looks_arduino:
+        raise DevError(f"This looks like STM32 HAL code, but the selected board is {board.name}. "
+                       "Choose 'STM32 NUCLEO-F446RE' in the Board menu. Nothing was saved.", 422)
