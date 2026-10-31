@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
@@ -26,16 +28,18 @@ class UploadBody(BuildBody):
 async def boards(request: Request):
     pio = request.app.state.pio
     cmd = pio.command()
+    version = await asyncio.to_thread(pio.version) if cmd else None  # `pio --version` can take seconds
     return {"boards": [b.public() for b in BOARDS.values()],
             "platformio": {"installed": cmd is not None, "command": " ".join(cmd) if cmd else None,
-                           "version": pio.version() if cmd else None}}
+                           "version": version}}
 
 
 @router.get("/ports", summary="Serial ports, and which one the shared serial manager has open")
 async def ports(request: Request):
     hw = request.app.state.hardware
     st = hw.status()
-    return {"ports": hw.ports(), "monitor_port": st["port"], "monitor_state": st["state"]}
+    ports = await asyncio.to_thread(hw.ports)  # listing COM ports can block on Windows
+    return {"ports": ports, "monitor_port": st["port"], "monitor_state": st["state"]}
 
 
 @router.get("/project/{board}", summary="The board project's main source file")

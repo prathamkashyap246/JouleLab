@@ -9,24 +9,33 @@
 """
 import hmac
 import ipaddress
+import logging
 
 from fastapi import HTTPException, Request, WebSocket
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import settings
 
+log = logging.getLogger("joulelab.access")
 PROXY_HEADER = b"x-joulelab-proxy-key"
 
 
 def _loopback(host: str | None) -> bool:
+    """True for 127.0.0.0/8, ::1 and the IPv4-mapped form (::ffff:127.0.0.1) that Windows/Node
+    often report. Tolerates a trailing port and brackets."""
     if not host:
         return False
+    host = host.strip().strip("[]")
     if host in ("localhost", "testclient"):  # "testclient" = FastAPI's in-process test client
         return True
+    if host.count(":") == 1 and "." in host:  # 127.0.0.1:51400
+        host = host.rsplit(":", 1)[0]
     try:
-        return ipaddress.ip_address(host.split("%")[0]).is_loopback
+        ip = ipaddress.ip_address(host.split("%")[0])
     except ValueError:
         return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return (mapped or ip).is_loopback
 
 
 class AccessMiddleware:
@@ -65,7 +74,11 @@ def is_local(conn: Request | WebSocket) -> bool:
         return _loopback(conn.client.host if conn.client else None)
     fwd = conn.headers.get("x-forwarded-for")
     # the proxy appends the real browser address, so a forged value cannot hide it
-    return fwd is not None and all(_loopback(x.strip()) for x in fwd.split(","))
+    ok = fwd is not None and all(_loopback(x.strip()) for x in fwd.split(","))
+    if not ok:
+        log.warning("Refused build/serial access: browser address %r is not this computer. "
+                    "Set DEV_ALLOW_REMOTE=true in backend/.env if this is wrong.", fwd)
+    return ok
 
 
 LOCAL_ONLY_MESSAGE = ("Build, upload, debug and terminal input are only allowed from this computer. "

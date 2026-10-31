@@ -53,6 +53,10 @@ BOARDS: dict[str, Board] = {
         "nucleo_f446re", "STM32 NUCLEO-F446RE", "joulelab_f446re", "Core/Src/main.c", "c", "stlink", True,
         "Uses the on-board ST-LINK (OpenOCD + GDB, downloaded by PlatformIO).",
         ("build", "tests", ".pio", ".gitignore", "Makefile")),
+    "nucleo_f446re_arduino": Board(
+        "nucleo_f446re_arduino", "STM32 NUCLEO-F446RE (Arduino)", "platformio_templates/nucleo_f446re_arduino",
+        "src/main.ino", "arduino", "stlink", True,
+        "Uses the on-board ST-LINK (OpenOCD + GDB, downloaded by PlatformIO)."),
     "esp32dev": Board(
         "esp32dev", "ESP32 DevKit", "platformio_templates/esp32dev", "src/main.ino", "arduino", "serial", False,
         "Needs an external JTAG probe (e.g. ESP-Prog); not available over the DevKit's USB port."),
@@ -114,14 +118,23 @@ class PlatformIO:
     def project_dir(self, board: Board) -> Path:
         return self.projects_dir / board.id
 
+    # Files that configure the build. They always come from the template (see the module docstring),
+    # so a project created by an older version picks up fixes instead of keeping a stale copy.
+    CONFIG_FILES = ("platformio.ini", "pio_build.py")
+
     def ensure_project(self, board: Board) -> Path:
         dest = self.project_dir(board)
+        src = self.firmware_dir / board.template
         if not (dest / "platformio.ini").exists():
-            src = self.firmware_dir / board.template
             if not (src / "platformio.ini").exists():
                 raise DevError(f"Project template missing: {src}", 500)
             self.projects_dir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*board.copy_ignore), dirs_exist_ok=True)
+        else:
+            for name in self.CONFIG_FILES:
+                t, d = src / name, dest / name
+                if t.is_file() and (not d.is_file() or t.read_bytes() != d.read_bytes()):
+                    shutil.copyfile(t, d)
         return dest
 
     def reset_project(self, board: Board) -> Path:

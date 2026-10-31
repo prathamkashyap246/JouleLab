@@ -1,3 +1,4 @@
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -17,7 +18,7 @@ async def status(request: Request):
 @router.get("/ports", summary="Serial ports; ST-LINK ports are flagged and listed first")
 async def ports(request: Request):
     hw = request.app.state.hardware
-    ports = hw.ports()
+    ports = await asyncio.to_thread(hw.ports)  # listing COM ports can block the event loop on Windows
     return {"ports": ports, "stlink_count": sum(p["is_stlink"] for p in ports),
             "default_baudrate": hw.settings.serial_baudrate}
 

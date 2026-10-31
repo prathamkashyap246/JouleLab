@@ -27,6 +27,7 @@
           <button class="devbtn run" id="run" title="Build, flash, then open the terminal with the board's output">▶ Run</button>
           <button class="devbtn" id="debug" title="Start a GDB session (pio debug)">⏯ Debug</button>
           <button class="devbtn stop" id="stop" disabled title="Stop the running build, upload or debug session">■ Stop</button>
+          <select id="monbaud" class="mono small" title="Baud rate (must match Serial.begin in your code)"><option>115200</option><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>230400</option><option>460800</option><option>921600</option></select>
           <button class="chip2" id="monitor" title="Open the board's serial port through JouleLab's shared serial connection">Serial monitor</button>
         </div>
       </div>
@@ -65,6 +66,7 @@
         <button data-con="mon">Serial monitor</button>
         <button data-con="log" title="A second board's text output (e.g. ESP32 logs) while the NUCLEO measures">Log port</button>
         <span class="mono small" id="jobstate"></span>
+        <label class="mono small"><input type="checkbox" id="autoscroll" checked> Autoscroll</label>
         <button class="chip2" id="conclear">Clear</button>
       </div>
       <pre class="con mono" id="con-out">Compiler output will appear here.</pre>
