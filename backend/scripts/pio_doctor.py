@@ -22,7 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = {"uno": ROOT / "firmware/platformio_templates/uno",
              "esp32dev": ROOT / "firmware/platformio_templates/esp32dev",
-             "nucleo_f446re": ROOT / "firmware/joulelab_f446re"}
+             "nucleo_f446re": ROOT / "firmware/joulelab_f446re",
+             "nucleo_f446re_arduino": ROOT / "firmware/platformio_templates/nucleo_f446re_arduino"}
 IGNORE = shutil.ignore_patterns("build", "tests", ".pio", ".gitignore", "Makefile")
 
 

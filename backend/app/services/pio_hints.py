@@ -33,7 +33,8 @@ RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"No ST-LINK detected|open failed|Error: init mode failed|LIBUSB_ERROR|"
                 r"unable to open ftdi device|Error: .*stlink", re.I),
      "OpenOCD cannot talk to the ST-LINK. Use the CN1 mini-USB on the NUCLEO with a data cable; on Linux "
-     "install PlatformIO's udev rules; on Windows install the ST-LINK driver; close STM32CubeProgrammer."),
+     "install PlatformIO's udev rules; on Windows install the ST-LINK driver (or set upload_protocol = mbed in "
+     "the board's platformio.ini to flash by copying to the NOD_F446RE drive); close STM32CubeProgrammer."),
     (re.compile(r"undefined reference to [`']_(?:sbrk|write|read|close|lseek|fstat|isatty|exit|kill|getpid)", re.I),
      "newlib system stubs are missing. Add the project's syscalls or link with -specs=nosys.specs."),
     (re.compile(r"uses VFP register arguments|conflicting.*float|Source object .* has EABI version", re.I),

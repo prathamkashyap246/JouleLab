@@ -166,6 +166,8 @@ class PlatformIO:
 
 _ARDUINO_HINTS = ("#include <arduino.h>", "#include <bledevice.h>", "#include <wifi.h>", "#include <wire.h>",
                   "serial.begin(", "digitalwrite(", "ledcattach(", "ledcwrite(", "esp_sleep_", "bledevice::")
+_ESP32_HINTS = ("#include <bledevice.h>", "#include <wifi.h>", "ledcattach(", "ledcwrite(", "esp_sleep_",
+                "bledevice::", "esp_random(", "#include <esp_")
 _STM32_HINTS = ("stm32f4xx_hal.h", "hal_init(", "systemclock_config(", "main.h\"", "huart", "hi2c")
 
 
@@ -180,6 +182,11 @@ def check_board_matches(board: Board, source: str) -> None:
     if board.language == "c" and looks_arduino and not looks_stm32:
         raise DevError(f"This looks like an Arduino/ESP32 sketch, but the selected board is {board.name}. "
                        "Choose 'ESP32 DevKit' (or 'Arduino Uno R3') in the Board menu. Nothing was saved.", 422)
+    if board.id == "nucleo_f446re_arduino" and any(h in low for h in _ESP32_HINTS):
+        raise DevError(f"This sketch uses ESP32-only features (BLE, Wi-Fi, ledc, esp_...), but the selected "
+                       f"board is {board.name}. Choose 'ESP32 DevKit' in the Board menu. Nothing was saved.", 422)
+    if board.id == "nucleo_f446re_arduino":
+        return                                    # HAL calls inside an Arduino sketch are fine on STM32duino
     if board.language == "arduino" and looks_stm32 and not looks_arduino:
         raise DevError(f"This looks like STM32 HAL code, but the selected board is {board.name}. "
                        "Choose 'STM32 NUCLEO-F446RE' in the Board menu. Nothing was saved.", 422)
