@@ -119,6 +119,8 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
     else:
         K, errs = k, {}
     W, H, resid = nmf_kl(V, K)
+    n_raw = K
+    W, H, K = _merge_coactive(W, H)               # pieces of one module switch on and off together
 
     # on/off activity per component, then total = baseline + sum(on_k * I_k) by least squares
     ON = np.array([_on_off(H[j]) for j in range(K)], float)
@@ -150,7 +152,7 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
 
     out = {
         "fs_hz": round(fs, 2), "duration_s": round(dur, 2), "vbus_v": round(vbus, 4),
-        "samples": int(len(tg)), "k": K, "k_auto": k is None,
+        "samples": int(len(tg)), "k": K, "k_auto": k is None, "nmf_components": n_raw,
         "k_curve": {str(a): round(b, 4) for a, b in errs.items()},
         "unexplained": round(resid, 4),
         "baseline_ma": round(base_ma, 3), "total_avg_ma": round(total_avg, 3),
@@ -168,6 +170,33 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
 
 
 # ----------------------------------------------------------------- helpers
+def _merge_coactive(W, H, thr: float = 0.35):
+    """A broadband module (e.g. jittered radio pulses) can be split by NMF into several pieces that
+    turn on and off together. Merge components whose on/off activity correlates above thr."""
+    K = W.shape[1]
+    if K < 2:
+        return W, H, K
+    ON = np.array([_on_off(H[j]) for j in range(K)], float)
+    C = np.nan_to_num(np.corrcoef(ON))
+    parent = list(range(K))
+    def root(a):
+        while parent[a] != a:
+            a = parent[a]
+        return a
+    for a in range(K):
+        for b in range(a + 1, K):
+            if C[a, b] > thr:
+                parent[root(b)] = root(a)
+    groups = {}
+    for j in range(K):
+        groups.setdefault(root(j), []).append(j)
+    if len(groups) == K:
+        return W, H, K
+    Wn = np.column_stack([W[:, g].sum(axis=1) for g in groups.values()])
+    Hn = np.vstack([H[g].sum(axis=0) for g in groups.values()])
+    return Wn, Hn, len(groups)
+
+
 def _on_off(h: np.ndarray) -> np.ndarray:
     hs = medfilt(h, 5)
     lo, hi = np.percentile(hs, 10), np.percentile(hs, 90)
@@ -355,3 +384,19 @@ def simulate_custom(modules: list[dict], seconds: float = 60, seed: int = 0, sam
     i_ma = np.round(avg / 0.1) * 0.1
     chg = np.concatenate([[0], np.where(np.diff(state) != 0)[0] + 1])
     return t[read_idx], i_ma, vbus, (t[chg], state[chg]), truth, names
+
+
+def to_log_text(t_s, current_ma, vbus, states, note: str = "") -> str:
+    """Write samples in the profiler.ino log format (#VBUS / E,t_us,state / S,t_us,raw), tagged #SIM."""
+    lines = ["#SIM"]
+    if note:
+        lines.append("#NOTE," + note.replace("\n", " ")[:400])
+    lines += ["#BOOT", f"#VBUS,{vbus:.4f}", "#CFG,0x199D"]
+    ev = list(zip((np.asarray(states[0]) * 1e6).astype(np.int64), np.asarray(states[1]))) if states else []
+    k = 0
+    for ts, ma in zip((np.asarray(t_s) * 1e6).astype(np.int64), current_ma):
+        while k < len(ev) and ev[k][0] <= ts:
+            lines.append(f"E,{ev[k][0]},{ev[k][1]}")
+            k += 1
+        lines.append(f"S,{ts},{int(round(ma / 0.1))}")
+    return "\n".join(lines) + "\n"

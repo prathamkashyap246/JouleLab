@@ -4,9 +4,10 @@ from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from app.services import separation
+from app.services import circuit_ai, separation
 
 router = APIRouter()
 
@@ -79,3 +80,39 @@ async def separate(req: SeparateRequest, request: Request):
     result["source"] = req.source
     result["simulated"] = bool(simulated)
     return result
+
+
+class DescribeRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/describe", summary="Turn a circuit description into virtual-room modules (AI or rule parser)")
+async def describe(req: DescribeRequest):
+    try:
+        return await asyncio.to_thread(circuit_ai.describe_to_modules, req.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class VirtualLogRequest(BaseModel):
+    modules: list[dict] = Field(min_length=1, max_length=8)
+    seconds: float = Field(default=60, ge=5, le=120)
+    seed: int = Field(default=0, ge=0, le=10_000)
+    sample_period_us: int = Field(default=532, ge=200, le=20_000)
+    noise_ma: float = Field(default=0.25, ge=0, le=20)
+    baseline_ma: float = Field(default=45, ge=0, le=500)
+    note: str = Field(default="", max_length=400)
+
+
+@router.post("/virtual-log", summary="Generate a simulated log file (profiler.ino format) from virtual modules",
+             response_class=PlainTextResponse)
+async def virtual_log(req: VirtualLogRequest):
+    try:
+        t, i, v, states, truth, names = await asyncio.to_thread(
+            separation.simulate_custom, req.modules, req.seconds, req.seed, req.sample_period_us,
+            req.noise_ma, req.baseline_ma)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    desc = "; ".join(f"{m.get('name')}: {m.get('type')} {m.get('freq_hz', '')} Hz {m.get('current_ma')} mA" for m in req.modules)
+    text = await asyncio.to_thread(separation.to_log_text, t, i, v, states, (req.note + " | " if req.note else "") + desc)
+    return PlainTextResponse(text, headers={"Content-Disposition": 'attachment; filename="joulelab_virtual_log.txt"'})

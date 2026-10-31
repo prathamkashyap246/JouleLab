@@ -332,13 +332,39 @@ const VR_PRESETS = {
 };
 const VR_TYPES = { pwm: 'PWM (square)', sine: 'Sine', pulse: 'Pulse train', step: 'Step (no frequency)' };
 
-function VirtualRoom({ mods, setMods, noise, setNoise, period, setPeriod, busy }) {
+function VirtualRoom({ mods, setMods, noise, setNoise, period, setPeriod, busy, baseline, setBaseline, seconds, seed }) {
+  const [desc, setDesc] = useState(''), [ai, setAi] = useState(null), [aiBusy, setAiBusy] = useState(false), [aiErr, setAiErr] = useState('');
+  const build = async () => {
+    setAiBusy(true); setAiErr('');
+    try { const r = await post('/analysis/describe', { text: desc }); setMods(r.modules); setBaseline(r.baseline_ma); setAi(r); }
+    catch (e) { setAiErr(e.message); } finally { setAiBusy(false); }
+  };
+  const download = async () => {
+    setAiErr('');
+    try {
+      const r = await fetch(API + '/analysis/virtual-log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modules: mods, seconds: Math.min(+seconds || 60, 120), seed: +seed || 0, sample_period_us: period, noise_ma: +noise, baseline_ma: +baseline, note: desc.slice(0, 300) }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Could not generate the log.');
+      const el = document.createElement('a'); el.href = URL.createObjectURL(await r.blob()); el.download = 'joulelab_virtual_log.txt'; el.click();
+    } catch (e) { setAiErr(typeof e.message === 'string' ? e.message : 'Could not generate the log.'); }
+  };
   const upd = (i, k, v) => setMods(m => m.map((x, j) => j === i ? { ...x, [k]: v } : x));
   const nyq = 1e6 / period / 2;
   return <div className="vr">
     <div className="row"><h3>Virtual room</h3>
       <select value="" onChange={e => e.target.value && setMods(VR_PRESETS[e.target.value].map(x => ({ ...x })))} disabled={busy}>
         <option value="">Load a scenario…</option>{Object.keys(VR_PRESETS).map(k => <option key={k}>{k}</option>)}</select></div>
+    <div className="vr-ai">
+      <span className="mono small">DESCRIBE YOUR CIRCUIT</span>
+      <textarea value={desc} onChange={e => setDesc(e.target.value)} disabled={busy || aiBusy} rows="3"
+        placeholder="e.g. Two red LEDs with 220 ohm resistors, one PWM at 37 Hz and one at 173 Hz, plus BLE advertising every 100 ms" />
+      <div className="btns"><button className="chip2" onClick={build} disabled={busy || aiBusy || !desc.trim()}>{aiBusy ? 'Building…' : 'Build modules from description ✦'}</button>
+        <button className="chip2" onClick={download} disabled={busy || !mods.length}>Download log file ↓</button></div>
+      {aiErr && <p className="mono small vr-err">{aiErr}</p>}
+      {ai && <div className="find"><span className="mono small">{ai.engine === 'ai' ? 'BUILT BY AI · CHECK THE TABLE' : 'BUILT BY RULE PARSER · CHECK THE TABLE'}</span>
+        <p>The description only sets the module list below. The physics simulator generates the samples, so every log is reproducible and marked simulated.</p>
+        {ai.notes && ai.notes.length > 0 && <ul className="vr-notes">{ai.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}</div>}
+    </div>
     <p className="mono small">Design the modules on a virtual board. Each one switches on and off at random, overlapping the others, and the trace goes through the same INA219 model as the hardware (532 µs averaging, noise, 0.1 mA steps). The separation never sees this table; it only scores against it.</p>
     <table className="hw-table mono vr-table"><thead><tr><th>Name</th><th>Waveform</th><th>Frequency</th><th>Current</th><th>Shape</th><th /></tr></thead>
       <tbody>{mods.map((m, i) => <tr key={i}>
@@ -352,6 +378,7 @@ function VirtualRoom({ mods, setMods, noise, setNoise, period, setPeriod, busy }
         <td><button className="chip2" onClick={() => setMods(ms => ms.filter((_, j) => j !== i))} disabled={busy || mods.length < 2}>✕</button></td></tr>)}</tbody></table>
     <div className="hw-controls vr-controls">
       <button className="chip2" onClick={() => setMods(ms => [...ms, { name: 'Module ' + (ms.length + 1), type: 'sine', freq_hz: 50 + 30 * ms.length + 7, current_ma: 10 }])} disabled={busy || mods.length >= 8}>+ Add module</button>
+      <label><span className="mono small">IDLE CURRENT (mA)</span><input type="number" min="0" max="500" step="1" value={baseline} onChange={e => setBaseline(e.target.value)} disabled={busy} /></label>
       <label><span className="mono small">SENSOR NOISE (mA RMS)</span><input type="number" min="0" max="20" step="0.05" value={noise} onChange={e => setNoise(e.target.value)} disabled={busy} /></label>
       <label><span className="mono small">SAMPLE RATE</span><select value={period} onChange={e => setPeriod(+e.target.value)} disabled={busy}>
         <option value={2000}>500 Hz · team firmware</option><option value={1000}>1 kHz</option><option value={532}>1.88 kHz · profiler.ino</option></select></label>
@@ -363,7 +390,7 @@ function VirtualRoom({ mods, setMods, noise, setNoise, period, setPeriod, busy }
 function Separation({ capacity }) {
   const [mode, setMode] = useState('simulated'), [seconds, setSeconds] = useState(60), [seed, setSeed] = useState(0), [kSel, setKSel] = useState('auto');
   const [logText, setLogText] = useState(''), [fileName, setFileName] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [res, setRes] = useState(null);
-  const [mods, setMods] = useState(VR_PRESETS['Demo board (3 modules)'].map(x => ({ ...x }))), [noise, setNoise] = useState(0.25), [period, setPeriod] = useState(2000);
+  const [mods, setMods] = useState(VR_PRESETS['Demo board (3 modules)'].map(x => ({ ...x }))), [noise, setNoise] = useState(0.25), [period, setPeriod] = useState(2000), [baseline, setBaseline] = useState(45);
   const loadFile = file => { if (!file) return; setFileName(file.name); file.text().then(setLogText); };
   const [sessList, setSessList] = useState([]), [sessionId, setSessionId] = useState('');
   useEffect(() => { if (mode === 'session') api('/sessions?limit=50').then(d => { setSessList(d.sessions); if (!sessionId && d.sessions[0]) setSessionId(String(d.sessions[0].id)); }).catch(e => setErr(e.message)); }, [mode]);
@@ -372,7 +399,7 @@ function Separation({ capacity }) {
     try {
       setRes(await post('/analysis/separate', { source: mode, seconds: mode === 'virtual' ? Math.min(+seconds, 120) : +seconds, seed: +seed, k: kSel === 'auto' ? null : +kSel,
         log_text: mode === 'log' ? logText : null, capacity_mah: capacity, modules: mode === 'virtual' ? mods : [],
-        noise_ma: +noise, sample_period_us: mode === 'virtual' ? period : 2000, session_id: mode === 'session' ? +sessionId : null }));
+        noise_ma: +noise, baseline_ma: +baseline, sample_period_us: mode === 'virtual' ? period : 2000, session_id: mode === 'session' ? +sessionId : null }));
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const comps = res ? res.components : [], hasScore = res && res.scoring;
@@ -393,7 +420,8 @@ function Separation({ capacity }) {
         <select value={kSel} onChange={e => setKSel(e.target.value)} disabled={busy}>{['auto', 1, 2, 3, 4, 5, 6].map(k => <option key={k} value={k}>{k === 'auto' ? 'Detect automatically' : k}</option>)}</select></label>
       <div className="btns"><button className="runbtn hw-btn" onClick={run} disabled={busy || (mode === 'log' && !logText)}>{busy ? 'Separating…' : 'Separate'} <span>▶</span></button></div>
     </div>
-    {mode === 'virtual' && <VirtualRoom mods={mods} setMods={setMods} noise={noise} setNoise={setNoise} period={period} setPeriod={setPeriod} busy={busy} />}
+    {mode === 'virtual' && <VirtualRoom mods={mods} setMods={setMods} noise={noise} setNoise={setNoise} period={period} setPeriod={setPeriod} busy={busy}
+      baseline={baseline} setBaseline={setBaseline} seconds={seconds} seed={seed} />}
     {mode === 'log' && fileName && <p className="mono small hw-msg">{fileName} · {(logText.length / 1e6).toFixed(2)} MB loaded</p>}
     {err && <div className="find high"><span className="mono small">SEPARATION</span><b>{err}</b></div>}
 
@@ -403,7 +431,7 @@ function Separation({ capacity }) {
         <span className="mono small">{f(res.duration_s, 1)} s · {f(res.fs_hz, 0)} Hz sampling · {res.samples.toLocaleString()} samples · Vbus {f(res.vbus_v, 2)} V</span>
       </div>
       <div className="stats four">
-        <div><p className="mono small">MODULES FOUND{res.k_auto ? ' · AUTO' : ''}</p><b>{res.k}</b></div>
+        <div><p className="mono small">MODULES FOUND{res.k_auto ? ' · AUTO' : ''}</p><b>{res.k}{res.nmf_components > res.k && <small> ({res.nmf_components} pieces merged)</small>}</b></div>
         <div><p className="mono small">UNEXPLAINED SPECTRUM</p><b>{f(res.unexplained * 100, 1)}<small> %</small></b></div>
         <div><p className="mono small">BASELINE</p><b>{f(res.baseline_ma, 1)}<small> mA</small></b></div>
         <div><p className="mono small">RUNTIME @ {capacity.toLocaleString()} mAh</p><b>{res.days_total != null ? f(res.days_total, 1) : '–'}<small> days</small></b></div>

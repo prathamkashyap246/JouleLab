@@ -189,6 +189,14 @@ Sources: live data from the board, an uploaded log, a simulated 3-module ESP32 d
 the full-rate stream (500 Hz from the JouleLab firmware); signatures above ~250 Hz cannot be seen
 at that rate.
 
+In the virtual room you can also **describe the circuit in plain English** ("two red LEDs with 220 ohm,
+one PWM at 37 Hz and one at 173 Hz, plus BLE every 100 ms"). `POST /api/analysis/describe` turns the
+description into the module list (OpenAI if `OPENAI_API_KEY`/`OPENAI_MODEL` are set, otherwise an
+offline rule parser) and lists every assumption it made; the user checks the table. The AI never
+writes samples: `POST /api/analysis/virtual-log` runs the physics simulator and returns a log in the
+`profiler.ino` format (`#SIM`, `S,t_us,raw`, `E,t_us,state`), which can be uploaded back for separation.
+Pieces of one broadband module that switch on and off together (e.g. jittered BLE bursts) are merged.
+
 ## 6. Testing without a board (development only)
 
 `backend/scripts/send_test_samples.py` sends correctly formatted packets whose HELLO is flagged

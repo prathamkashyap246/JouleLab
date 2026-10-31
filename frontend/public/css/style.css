@@ -285,3 +285,5 @@ input[type=range]{width:100%;accent-color:var(--acc);margin:16px 0 6px}
 .logbar[hidden]{display:none}
 .logbar select{background:#0a1714;border:1px solid #24463d;border-radius:8px;padding:8px;color:#d8efe7;font:inherit;font-size:12px;max-width:280px}
 .logbar .chip2{background:transparent;color:#d8efe7;border-color:#24463d;padding:8px 12px;font-size:12px}
+.vr-ai{display:flex;flex-direction:column;gap:10px;margin:14px 0 20px}.vr-ai textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:15px 'Outfit',sans-serif;background:var(--bg);color:var(--ink);resize:vertical}
+.vr-notes{margin:8px 0 0 18px;font-size:13px;color:var(--mute);line-height:1.6}.vr-err{color:#d9472f}
