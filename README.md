@@ -48,7 +48,7 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --port 8000
 ```
 Second terminal:
 ```bash
@@ -70,7 +70,7 @@ py -3 -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --port 8000
 ```
 Second terminal:
 ```powershell
@@ -81,6 +81,25 @@ npm start
 If `venv\Scripts\activate` is blocked, run once:
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
+`npm start` first compiles the lab page (`src/app.jsx` → `public/js/app.js`). React is served
+from `node_modules`, so after `npm install` the site works without internet.
+
+### Access and security
+
+By default everything is reachable **only from this computer**: the frontend listens on
+127.0.0.1:3000 and uvicorn (as started above) on 127.0.0.1:8000.
+
+* The frontend proxy and the backend share a random key (`backend/data/proxy.key`, created on the
+  backend's first start, readable only by you). The backend answers other machines only when
+  they come through the proxy with that key, and only then trusts the forwarded browser address.
+* To open JouleLab to other computers, set a password and a host, e.g.
+  `JOULELAB_PASSWORD='a long passphrase' HOST=0.0.0.0 npm start`. The frontend refuses to listen on
+  a public address without a password. Login cookies are signed, HttpOnly and SameSite=Strict;
+  10 wrong passwords lock an address out for 15 minutes. Use HTTPS (a reverse proxy) beyond your
+  own network.
+* Build, upload, debug and terminal input stay limited to this computer even when logged in from
+  elsewhere, unless `DEV_ALLOW_REMOTE=true` is set in `backend/.env`.
+
 ## 4. See live measurements
 
 1. Open http://localhost:3000/#lab and choose the **Live hardware** tab.
@@ -90,7 +109,17 @@ If `venv\Scripts\activate` is blocked, run once:
    samples underneath. With the example firmware, "Energy by function" fills with
    `sensor_read`, `compute`, `send_data` and `idle_sleep`.
 4. **Start session** records to SQLite (`backend/data/joulelab.db`); **Stop & save** stores the
-   energy summary and per-function results.
+   energy summary and per-function results. Tick **Full rate** to keep every sample (needed for
+   Module separation on that recording; about 10× the disk space, ~150 MB per hour at 500 Hz).
+5. **Above idle**: each function's energy per call minus what the idle floor
+   (`BASELINE_FUNCTION`, default `idle_sleep`) would use in the same time. When the INA219 sits on
+   the STM32's own supply (JP6), that floor includes the measurement firmware's own timer, I2C
+   and UART work, so "Above idle" is the number to compare.
+
+**Resolution.** The INA219 measures shunt voltage in 10 µV steps, so current resolution is
+10 µV ÷ shunt: 100 µA with the usual 0.1 Ω shunt, 10 µA with 1 Ω (max current then 320 mA).
+Software cannot improve this; for sleep currents fit a larger shunt and set `JL_SHUNT_MILLIOHM`
+in `firmware/joulelab_f446re/Core/Inc/jl_config.h`.
 
 Status meanings: *Port open · waiting for data* (port works, no valid packets yet; the message
 says why), *Streaming* (valid data within 2 s, the only state shown as connected), *Data stopped*,
@@ -114,6 +143,7 @@ Open http://localhost:3000/workspace. Above the editor:
 | **→ Upload** | `pio run -e <board> -t upload`. NUCLEO: through the ST-LINK (SWD), no port needed. ESP32/Uno: through the chosen serial port. |
 | **⏯ Debug** | NUCLEO only: `pio debug` (debug build, flash, stop at `main()`), then GDB commands from the console (`continue`, `next`, `step`, `bt`, …). |
 | **▶ Run** | Upload, then opens the terminal on the board's port so you see what the program prints. Type into the terminal's input line to send text to the board. |
+| **Log port** (console tab) | A second board's text output (e.g. ESP32 logs) while the NUCLEO keeps measuring on the main connection. **▶ Run** on an ESP32/Uno uses it automatically when the main connection is busy measuring another board. |
 | **■ Stop** | Ends the running build, upload or debug session (including OpenOCD/GDB). |
 | **Serial monitor** | Opens the port through JouleLab's one serial connection and shows the text the board prints. |
 
@@ -175,12 +205,23 @@ Type that port into the Live hardware tab. (Windows: create a virtual pair with 
 
 ## 7. Tests
 
+**Browser tests** (real backend + frontend + Chromium, with virtual boards; macOS/Linux):
+```bash
+cd frontend
+npm i -D playwright && npx playwright install chromium   # once
+npm run test:e2e
+```
+They cover the offline lab page, live streaming, full-rate session → separation, Verify, Run on the
+log port while measuring, terminal echo, and debug/Stop. PlatformIO and both boards are simulated.
+
+**Backend tests:**
+
 ```bash
 cd backend && pytest -q
 ```
-75 tests: protocol and CRC, decoder (split, corrupt and garbage input), sequence/loss/wrap
+83 tests: protocol and CRC, decoder (split, corrupt and garbage input), sequence/loss/wrap
 handling, energy and function windows, port detection, real serial I/O through a virtual port,
-the REST API and WebSockets, and module separation, the Workspace build/upload/debug/stop handling (with a stand-in
+the REST API and WebSockets, access rules (proxy key, forged headers), the log port, and module separation, the Workspace build/upload/debug/stop handling (with a stand-in
 for the `pio` command, so they check JouleLab's process handling, not the compilers). `test_firmware_compat.py` compiles the firmware's C packet code with
 your PC's C compiler and checks it against the Python decoder byte for byte (skipped if no C
 compiler is installed).
