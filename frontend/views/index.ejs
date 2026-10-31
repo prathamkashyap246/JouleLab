@@ -92,12 +92,11 @@ EB_END("sensing");
     <a class="dl" data-tilt id="report" href="/api/report"><p class="mono small">DOWNLOAD</p><h3>Energy report</h3><b>↓</b><span class="mono">.TXT / current run</span></a>
   </section>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+  <script src="/vendor/react/react.production.min.js"></script>
+  <script src="/vendor/react-dom/react-dom.production.min.js"></script>
   <script>window.BOARDS = <%- JSON.stringify(boards) %>;</script>
   <script src="/js/fx.js"></script>
   <script src="/js/main.js"></script>
-  <script type="text/babel" data-presets="react" src="/js/app.js"></script>
+  <script src="/js/app.js"></script><!-- compiled from src/app.jsx by `npm run build` -->
 </body>
 </html>

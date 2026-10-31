@@ -115,6 +115,9 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 auth.install(app); // login wall when JOULELAB_PASSWORD is set
 app.use(express.static(path.join(__dirname, 'public')));
+// React is served from node_modules (no CDN; the page works offline)
+app.use('/vendor/react', express.static(path.join(__dirname, 'node_modules', 'react', 'umd')));
+app.use('/vendor/react-dom', express.static(path.join(__dirname, 'node_modules', 'react-dom', 'umd')));
 
 app.use(backend); // must come before express.json so request bodies are forwarded untouched
 app.use(express.json({ limit: '200kb' }));
