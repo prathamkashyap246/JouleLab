@@ -28,6 +28,8 @@ static volatile uint32_t s_tx_dropped;
 static volatile uint8_t s_seq;            /* 8-bit sample counter (also for lost samples) */
 static volatile uint8_t s_last_seq;       /* seq of the most recent sample started */
 static volatile uint8_t s_i2c_busy;
+static volatile uint16_t s_busy_ticks;
+#define STUCK_TICKS 50u  /* sample periods (100 ms at 2 ms) */
 static volatile uint8_t s_stage;          /* 0 = reading shunt, 1 = reading bus */
 static volatile uint8_t s_cur_seq;
 static volatile uint32_t s_cur_t;
@@ -99,7 +101,20 @@ void jl_on_timer(TIM_HandleTypeDef *htim)
     uint8_t seq = s_seq++;
     s_last_seq = seq;
     if (!s_sensor_ok) return;                    /* sample lost: host sees the seq gap */
-    if (s_i2c_busy) { s_overrun_total++; return; }
+    if (s_i2c_busy) {
+        s_overrun_total++;
+        /* A read that never finishes (no completion and no error interrupt, e.g. the INA219 holding
+           SDA low after a brown-out) would otherwise block sampling forever. After STUCK_TICKS
+           sample periods treat it as a failed read, so the sensor-lost recovery below re-inits I2C. */
+        if (++s_busy_ticks >= STUCK_TICKS) {
+            s_busy_ticks = 0;
+            s_i2c_busy = 0;
+            s_i2c_fail_total++;
+            s_consecutive_fail = SENSOR_LOST_AFTER;
+        }
+        return;
+    }
+    s_busy_ticks = 0;
     s_cur_t = t;
     s_cur_seq = seq;
     s_stage = 0;
