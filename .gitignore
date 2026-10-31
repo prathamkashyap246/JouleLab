@@ -1,0 +1,14 @@
+node_modules/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+backend/.env
+backend/data/
+firmware/joulelab_f446re/build/*.o
+firmware/joulelab_f446re/build/*.d
+firmware/joulelab_f446re/build/*.map
+.pio/
+*.zip
+test-results/
