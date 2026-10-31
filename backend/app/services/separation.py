@@ -121,18 +121,26 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
     if k is None:
         W, H, resid = nmf_kl(V, K)
         n_raw = K
-        W, H, K = _merge_coactive(W, H)           # pieces of one module switch on and off together
+        W, H, K = _merge_coactive(W, H, fk)       # pieces of one module switch on and off together
     else:
         # User fixed K. Fit extra components first: a strong broadband module (radio pulses with many
         # harmonics) otherwise uses up several components and a weak narrow one (a small LED) gets none.
         # Then merge pieces that switch on and off together, and merge the most alike until K remain.
+        # Components peaking below 6 Hz are on/off edges or step loads, not modules with a frequency
+        # signature; they are shown but do not count towards the requested K.
         for n_raw in (min(k + 3, 10), min(k + 2, 10), min(k + 4, 10), k):
             W, H, resid = nmf_kl(V, n_raw)
-            W, H, K = _merge_coactive(W, H)
-            if K >= k:
+            W, H, K = _merge_coactive(W, H, fk)
+            if _n_tonal(W, fk) >= k:
                 break
-        while K > k:
-            W, H, K = _merge_closest(W, H)
+        while _n_tonal(W, fk) > k:
+            W, H, K = _merge_closest(W, H, fk)
+        low = [j for j in range(K) if _peak(W[:, j], fk)[0] < 6]
+        if len(low) > 1:                          # all edge/step pieces as one row
+            keep_j = [j for j in range(K) if j not in low]
+            W = np.column_stack([W[:, keep_j], W[:, low].sum(axis=1)])
+            H = np.vstack([H[keep_j], H[low].sum(axis=0)])
+            K = W.shape[1]
 
     # on/off activity per component, then total = baseline + sum(on_k * I_k) by least squares
     ON = np.array([_on_off(H[j]) for j in range(K)], float)
@@ -180,7 +188,8 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
 
     out = {
         "fs_hz": round(fs, 2), "duration_s": round(dur, 2), "vbus_v": round(vbus, 4),
-        "samples": int(len(tg)), "k": K, "k_auto": k is None, "nmf_components": n_raw,
+        "samples": int(len(tg)), "k": K if k is None else sum(1 for c in comps if not c["low_freq"]),
+        "k_auto": k is None, "nmf_components": n_raw,
         "k_curve": {str(a): round(b, 4) for a, b in errs.items()},
         "unexplained": round(resid, 4),
         "baseline_ma": round(base_ma, 3), "total_avg_ma": round(total_avg, 3),
@@ -198,9 +207,36 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
 
 
 # ----------------------------------------------------------------- helpers
-def _merge_coactive(W, H, thr: float = 0.35):
+TONAL = 6.0   # peak / median of a signature above this: one narrow line (an LED's PWM), not broadband
+
+
+def _peak(w, fk):
+    return float(fk[int(np.argmax(w))]), float(w.max() / (np.median(w) + EPS))
+
+
+def _related(fa, fb, tol=3.0):
+    """Same line, or one a harmonic (2x..5x) of the other."""
+    lo, hi = sorted((fa, fb))
+    if hi - lo <= tol:
+        return True
+    n = round(hi / max(lo, EPS))
+    return 2 <= n <= 5 and abs(hi - n * lo) <= tol * n
+
+
+def _may_merge(W, a, b, fk):
+    """Two narrow lines at unrelated frequencies are two different modules, however often they happen
+    to be on together. Pieces of a broadband module (radio pulses) or of one line may be merged."""
+    fa, ta = _peak(W[:, a], fk)
+    fb, tb = _peak(W[:, b], fk)
+    if ta >= TONAL and tb >= TONAL:
+        return _related(fa, fb)
+    return True
+
+
+def _merge_coactive(W, H, fk, thr: float = 0.35):
     """A broadband module (e.g. jittered radio pulses) can be split by NMF into several pieces that
-    turn on and off together. Merge components whose on/off activity correlates above thr."""
+    turn on and off together. Merge components whose on/off activity correlates above thr, unless
+    they are clearly two separate narrow lines."""
     K = W.shape[1]
     if K < 2:
         return W, H, K
@@ -213,7 +249,7 @@ def _merge_coactive(W, H, thr: float = 0.35):
         return a
     for a in range(K):
         for b in range(a + 1, K):
-            if C[a, b] > thr:
+            if C[a, b] > thr and _may_merge(W, a, b, fk):
                 parent[root(b)] = root(a)
     groups = {}
     for j in range(K):
@@ -225,13 +261,27 @@ def _merge_coactive(W, H, thr: float = 0.35):
     return Wn, Hn, len(groups)
 
 
-def _merge_closest(W, H):
-    """Merge the two components whose on/off activity is most alike (used to reach a requested K)."""
+def _n_tonal(W, fk):
+    return sum(1 for j in range(W.shape[1]) if _peak(W[:, j], fk)[0] >= 6)
+
+
+def _merge_closest(W, H, fk):
+    """Merge one pair to reach a requested K: pieces of the same line first, then the most alike
+    on/off activity among pairs that may be merged."""
     K = W.shape[1]
     ON = np.array([_on_off(H[j]) for j in range(K)], float)
-    C = np.nan_to_num(np.corrcoef(ON)) - 2 * np.eye(K)
-    a, b = np.unravel_index(np.argmax(C), C.shape)
-    a, b = min(a, b), max(a, b)
+    C = np.nan_to_num(np.corrcoef(ON))
+    best, pair = -np.inf, (0, 1)
+    for a in range(K):
+        for b in range(a + 1, K):
+            fa, _ = _peak(W[:, a], fk)
+            fb, _ = _peak(W[:, b], fk)
+            if fa < 6 or fb < 6:
+                continue
+            score = C[a, b] + (2.0 if _related(fa, fb) else 0.0) - (0.0 if _may_merge(W, a, b, fk) else 4.0)
+            if score > best:
+                best, pair = score, (a, b)
+    a, b = pair
     W, H = W.copy(), H.copy()
     W[:, a] += W[:, b]
     H[a] += H[b]

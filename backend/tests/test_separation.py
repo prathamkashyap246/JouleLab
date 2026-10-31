@@ -62,3 +62,19 @@ def test_always_on_source_gets_no_negative_current():
     i = np.asarray(i) + 1.5 * np.sin(2 * np.pi * 70 * np.asarray(t))   # plus a source that never switches
     r = separation.separate(t, i, v, 4)
     assert all(c["current_on_ma"] >= 0 for c in r["components"])
+
+
+def test_manual_k_keeps_two_leds_apart_next_to_an_always_on_line():
+    """Real board, BLE off: LED A 36 Hz, LED B 173 Hz, plus an always-on 70 Hz ripple from the ESP32.
+    Two narrow lines at unrelated frequencies must never be merged into one module."""
+    import numpy as np
+    mods = [dict(name="LED A", type="pwm", freq_hz=36, current_ma=3),
+            dict(name="LED B", type="pwm", freq_hz=172.7, current_ma=6)]
+    for seed in (0, 3):
+        t, i, v, st, tr, names = separation.simulate_custom(mods, 60, seed, 2000, 0.25, 45)
+        i = np.asarray(i) + 1.0 * np.sin(2 * np.pi * 70.3 * np.asarray(t))
+        r = separation.separate(t, i, v, 3)
+        peaks = [round(c["peak_hz"]) for c in r["components"] if not c["low_freq"]]
+        assert r["k"] == 3 and len(peaks) == 3
+        assert any(abs(p - 36) <= 2 for p in peaks) and any(abs(p - 173) <= 2 for p in peaks)
+        assert all(c["current_on_ma"] >= 0 for c in r["components"])
