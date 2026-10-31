@@ -140,7 +140,7 @@ Open http://localhost:3000/workspace. Above the editor:
 | **Serial port** | Port for the Serial monitor, and the upload port for ESP32/Uno. "Type a port…" for ports the OS list misses. |
 | **Open board project in editor** | Loads the board's main file (`Core/Src/main.c` for the NUCLEO = the JouleLab firmware, `src/main.ino` for ESP32/Uno). |
 | **✓ Verify** | Saves the editor as that main file and runs `pio run -e <board>`. |
-| **→ Upload** | `pio run -e <board> -t upload`. NUCLEO: through the ST-LINK (SWD), no port needed. ESP32/Uno: through the chosen serial port. |
+| **→ Upload** | `pio run -e <board> -t upload`. NUCLEO: copies firmware.bin to the NOD_F446RE drive (`upload_protocol = mbed`, no driver needed; switch to `stlink` once the ST-LINK USB driver is installed). The measurement port is released during the upload and reopened after. ESP32/Uno: through the chosen serial port. |
 | **⏯ Debug** | NUCLEO only: `pio debug` (debug build, flash, stop at `main()`), then GDB commands from the console (`continue`, `next`, `step`, `bt`, …). |
 | **▶ Run** | Upload, then opens the terminal on the board's port so you see what the program prints. Type into the terminal's input line to send text to the board. |
 | **Log port** (console tab) | A second board's text output (e.g. ESP32 logs) while the NUCLEO keeps measuring on the main connection. **▶ Run** on an ESP32/Uno uses it automatically when the main connection is busy measuring another board. |
@@ -169,7 +169,8 @@ largest), so it can take several minutes. Later builds are quick.
 PlatformIO includes OpenOCD and ARM GDB for the NUCLEO's ST-LINK, so no separate ST-LINK GDB
 server is needed. Linux only: install PlatformIO's udev rules
 (https://docs.platformio.org/en/latest/core/installation/udev-rules.html) so OpenOCD can use
-the ST-LINK.
+the ST-LINK. Windows: Debug (and `upload_protocol = stlink`) need the ST-LINK USB driver
+(STSW-LINK009 or STM32CubeProgrammer); without it OpenOCD fails with "Error: open failed".
 
 **Debugging** is available for the NUCLEO-F446RE only. The ESP32 DevKit needs an external JTAG
 probe (e.g. ESP-Prog), and the Uno has no debugger over USB. While the CPU is halted the board

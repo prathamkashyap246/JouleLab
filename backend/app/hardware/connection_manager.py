@@ -441,7 +441,9 @@ class HardwareManager:
         d = self.decoder.stats
         if d.bytes_received == 0:
             return "waiting_for_data", (f"Port {self.port} is open but the board is sending nothing. Check that the "
-                                        "JouleLab firmware is flashed, then press the black RESET button (B2).")
+                                        "JouleLab firmware is flashed, press the black RESET button (B2), then "
+                                        "Disconnect and Connect again (after flashing through the NOD_F446RE "
+                                        "drive the old connection can go dead).")
         if d.packets_ok == 0:
             return "waiting_for_data", (f"Receiving bytes from {self.port} but none are valid JouleLab packets. "
                                         "That is expected for a sketch that prints text (see the Serial monitor). "

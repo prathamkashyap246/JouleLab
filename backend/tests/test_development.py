@@ -160,6 +160,35 @@ def test_serial_upload_borrows_the_shared_port_and_gives_it_back(client, monkeyp
         os.close(slave)
 
 
+def test_nucleo_upload_releases_the_stlink_port_and_reopens_it(client, monkeypatch):
+    """Flashing through the NOD_F446RE drive re-enumerates the ST-LINK; a COM handle kept open
+    across that goes dead on Windows. The port is released for the upload and reopened after."""
+    import pty
+    import tty
+    from app.services import upload_manager
+    monkeypatch.setattr(upload_manager, "NUCLEO_SETTLE_S", 0.1)
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    path = os.ttyname(slave)
+    try:
+        assert client.post("/api/hardware/connect", json={"port": path}).status_code == 200
+        monkeypatch.setenv("FAKE_PIO_SLEEP", "1.0")
+        r = client.post("/api/development/upload", json={"board": "nucleo_f446re"})
+        assert r.status_code == 200 and "--upload-port" not in r.json()["command"]
+        st = client.get("/api/hardware/status").json()
+        assert st["state"] == "paused" and st["port"] == path
+        assert wait_job(client)["status"] == "succeeded"
+        end = time.time() + 5
+        while client.get("/api/hardware/status").json()["state"] == "paused" and time.time() < end:
+            time.sleep(0.1)
+        st = client.get("/api/hardware/status").json()
+        assert st["state"] == "waiting_for_data" and st["port"] == path
+    finally:
+        client.post("/api/hardware/disconnect")
+        os.close(master)
+        os.close(slave)
+
+
 def test_debug_session_takes_gdb_commands(client):
     assert client.post("/api/development/debug/start", json={"board": "uno"}).status_code == 400
     with client.websocket_connect("/ws/build-output") as ws:
