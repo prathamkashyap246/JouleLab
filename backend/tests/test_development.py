@@ -66,7 +66,7 @@ def wait_job(c, timeout=10):
 
 def test_boards_and_projects(client):
     d = client.get("/api/development/boards").json()
-    assert [b["id"] for b in d["boards"]] == ["nucleo_f446re", "esp32dev", "uno"]
+    assert [b["id"] for b in d["boards"]] == ["nucleo_f446re", "nucleo_f446re_arduino", "esp32dev", "uno"]
     assert d["platformio"]["installed"] and "FAKE" in d["platformio"]["version"]
     p = client.get("/api/development/project/nucleo_f446re").json()
     assert p["main_file"] == "Core/Src/main.c" and "jl_init" in p["source"]
@@ -293,3 +293,25 @@ def test_two_boards_measurement_port_and_log_port(client, monkeypatch):
         client.post("/api/hardware/disconnect")
         for fd in fds:
             os.close(fd)
+
+
+def test_ensure_project_refreshes_stale_config(tmp_path):
+    """A project made by an older version must pick up the template's corrected platformio.ini."""
+    from app.core.config import Settings
+    from app.services.platformio_manager import PlatformIO, get_board
+
+    fw = tmp_path / "fw" / "platformio_templates" / "uno"
+    (fw / "src").mkdir(parents=True)
+    (fw / "platformio.ini").write_text("[env:uno]\nNEW\n")
+    (fw / "src" / "main.ino").write_text("void setup(){}void loop(){}")
+    s = Settings()
+    object.__setattr__(s, "projects_dir", str(tmp_path / "proj"))
+    object.__setattr__(s, "firmware_dir", str(tmp_path / "fw"))
+    pio = PlatformIO(s)
+    board = get_board("uno")
+    dest = pio.ensure_project(board)
+    (dest / "platformio.ini").write_text("[env:uno]\nOLD\n")
+    (dest / "src" / "main.ino").write_text("// my edit")
+    pio.ensure_project(board)
+    assert "NEW" in (dest / "platformio.ini").read_text()
+    assert (dest / "src" / "main.ino").read_text() == "// my edit"  # the user's code is never touched

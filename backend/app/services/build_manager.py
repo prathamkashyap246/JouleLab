@@ -24,6 +24,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
+from app.services.pio_hints import hints_for
 from app.services.platformio_manager import DevError, PlatformIO, get_board
 
 log = logging.getLogger("joulelab.dev")
@@ -156,6 +157,13 @@ class JobRunner:
         else:
             job.status, job.message = "failed", f"{job.kind.capitalize()} failed (exit code {code})."
         self.note(job.message, job)
+        if job.status in ("failed", "timeout") and job.kind != "debug":
+            found = hints_for(list(job.lines), code)
+            if not found and len(job.lines) <= 2:
+                found = ["PlatformIO printed nothing. Run `pio --version` in the backend's terminal; if that "
+                         "fails, reinstall: python -m pip install --upgrade platformio"]
+            for h in found:
+                self.note("Hint: " + h, job)
         log.info("job %s %s: %s", job.id, job.kind, job.message)
         if self._loop is not None and self._loop.is_running():
             fut = asyncio.run_coroutine_threadsafe(self._finish(job, on_exit), self._loop)

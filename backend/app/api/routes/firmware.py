@@ -10,6 +10,7 @@ router = APIRouter(dependencies=[Depends(require_local)])
 
 ALIASES = {"esp32": "esp32dev", "esp32 devkit": "esp32dev", "stm32": "nucleo_f446re",
            "nucleo-f446re": "nucleo_f446re", "stm32 nucleo-f446re": "nucleo_f446re",
+           "stm32 arduino": "nucleo_f446re_arduino", "nucleo arduino": "nucleo_f446re_arduino",
            "arduino uno": "uno", "arduino uno r3": "uno"}
 
 

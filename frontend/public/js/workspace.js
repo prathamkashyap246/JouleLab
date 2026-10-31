@@ -112,6 +112,7 @@ const DEV = '/backend/api/development', HW = '/backend/api/hardware';
 const dev = { boards: [], job: null, monitorPort: null, monitorState: 'disconnected', pio: false, manualPorts: [] };
 const conOut = $('con-out'), conMon = $('con-mon'), conLog = $('con-log');
 const logp = { port: null, state: 'disconnected' };
+const monBaud = () => +($('monbaud') ? $('monbaud').value : 115200) || 115200;
 const devBoard = () => dev.boards.find(b => b.id === $('devboard').value);
 async function devApi(path, body, method) {
   const r = await fetch(path, body !== undefined || method ? { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) } : undefined);
@@ -120,7 +121,7 @@ async function devApi(path, body, method) {
   return d;
 }
 function conAppend(el, text, cls) {
-  const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  const stick = $('autoscroll') ? $('autoscroll').checked : el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
   if (el.dataset.fresh !== '1') { el.textContent = ''; el.dataset.fresh = '1'; }
   if (cls) { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); }
   else el.appendChild(document.createTextNode(text));
@@ -180,6 +181,8 @@ async function loadPorts() {
   devRender();
 }
 $('devboard').addEventListener('change', () => { try { localStorage.setItem('jl.devboard', $('devboard').value); } catch (e) { } devRender(); });
+try { const sb = localStorage.getItem('jl.monbaud'); if (sb && $('monbaud')) $('monbaud').value = sb; } catch (e) { }
+$('monbaud').addEventListener('change', () => { try { localStorage.setItem('jl.monbaud', $('monbaud').value); } catch (e) { } });
 $('devrefresh').onclick = loadPorts;
 $('devport').addEventListener('change', () => {
   if ($('devport').value !== '__other') return;
@@ -220,9 +223,9 @@ async function openTerminalAfterRun() {
   const port = $('devport').value;
   if (!port || port === '__other') { conAppend(conMon, '\n[JouleLab] Flashed. Choose the board\'s serial port to see its output.\n', 'c-err'); return; }
   try {
-    const st = await devApi(HW + '/connect', { port, baudrate: 115200 });
+    const st = await devApi(HW + '/connect', { port, baudrate: monBaud() });
     dev.monitorPort = st.port; dev.monitorState = st.state;
-    conAppend(conMon, `\n[JouleLab] Program flashed. Terminal connected to ${port} at 115200 baud.\n`, 'c-jl');
+    conAppend(conMon, `\n[JouleLab] Program flashed. Terminal connected to ${port} at ${monBaud()} baud.\n`, 'c-jl');
     if (b && b.id === 'nucleo_f446re') conAppend(conMon, '[JouleLab] The JouleLab firmware sends binary measurements: watch them in Lab → Live hardware. Text your code prints appears here.\n', 'c-jl');
   } catch (e) { conAppend(conMon, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
   devRender(); loadPorts();
@@ -259,7 +262,7 @@ $('monitor').onclick = async () => {
   showCon('mon');
   const open = dev.monitorPort && !['disconnected', 'error'].includes(dev.monitorState);
   try {
-    const st = open ? await devApi(HW + '/disconnect', {}) : await devApi(HW + '/connect', { port: $('devport').value || 'auto', baudrate: 115200 });
+    const st = open ? await devApi(HW + '/disconnect', {}) : await devApi(HW + '/connect', { port: $('devport').value || 'auto', baudrate: monBaud() });
     dev.monitorPort = st.port; dev.monitorState = st.state;
   } catch (e) { conAppend(conMon, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
   devRender(); loadPorts();

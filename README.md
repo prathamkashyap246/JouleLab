@@ -172,6 +172,14 @@ server is needed. Linux only: install PlatformIO's udev rules
 the ST-LINK. Windows: Debug (and `upload_protocol = stlink`) need the ST-LINK USB driver
 (STSW-LINK009 or STM32CubeProgrammer); without it OpenOCD fails with "Error: open failed".
 
+**If Verify/Upload fails.** The console now prints a `Hint:` line under the error for the common causes
+(no internet for the first toolchain download, port busy, ESP32 not in download mode, ST-LINK not found).
+To see the raw reason outside the website, with the backend venv active:
+```bash
+cd backend
+python scripts/pio_doctor.py --build uno      # or esp32dev / nucleo_f446re
+```
+
 **Debugging** is available for the NUCLEO-F446RE only. The ESP32 DevKit needs an external JTAG
 probe (e.g. ESP-Prog), and the Uno has no debugger over USB. While the CPU is halted the board
 sends no measurements, so Live hardware shows "Data stopped" until you `continue`.
