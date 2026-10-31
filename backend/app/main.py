@@ -6,9 +6,9 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.deps import LOCAL_ONLY_MESSAGE, is_local
+from app.api.deps import LOCAL_ONLY_MESSAGE, AccessMiddleware, is_local
 from app.api.routes import analysis, debugging, development, firmware, hardware, measurements, optimization, sessions
-from app.core.config import settings
+from app.core.config import load_proxy_key, settings
 from app.database.database import Database
 from app.hardware.connection_manager import HardwareError, HardwareManager
 from app.services.build_manager import BuildManager, JobRunner
@@ -77,6 +77,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+load_proxy_key(settings)  # created on first start; the frontend proxy reads the same file
+app.add_middleware(AccessMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

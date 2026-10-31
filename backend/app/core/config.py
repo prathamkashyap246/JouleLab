@@ -66,6 +66,10 @@ class Settings:
     # Build/upload/debug run programs on this computer. By default only requests from this
     # computer are accepted (also when they come through the frontend proxy).
     dev_allow_remote: bool = _bool("DEV_ALLOW_REMOTE", False)
+    # Shared secret between the frontend proxy and this backend. Empty = read/create
+    # PROXY_KEY_FILE. Requests without it are accepted only from this computer.
+    proxy_key: str = os.getenv("JOULELAB_PROXY_KEY", "")
+    proxy_key_file: str = os.getenv("PROXY_KEY_FILE", str(BACKEND_DIR / "data" / "proxy.key"))
 
     cors_origins: list[str] = field(default_factory=lambda: _csv(
         "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"))
@@ -80,6 +84,28 @@ class Settings:
             raise ValueError("HARDWARE_MODE must be manual, serial or off")
         if self.serial_baudrate not in ALLOWED_BAUDRATES:
             raise ValueError(f"SERIAL_BAUDRATE must be one of {ALLOWED_BAUDRATES}")
+
+
+def load_proxy_key(s: "Settings") -> str:
+    """Return the proxy key, creating a random one (readable only by this user) if needed."""
+    if s.proxy_key:
+        return s.proxy_key
+    import secrets
+    path = Path(s.proxy_key_file)
+    try:
+        key = path.read_text().strip()
+        if key:
+            s.proxy_key = key
+            return key
+    except FileNotFoundError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = secrets.token_urlsafe(32)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(key + "\n")
+    s.proxy_key = key
+    return key
 
 
 settings = Settings()

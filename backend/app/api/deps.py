@@ -1,9 +1,21 @@
-"""Access rule for endpoints that run programs on this computer (build, upload, debug)."""
+"""Who may call the backend.
+
+* The frontend proxy (port 3000) adds the shared key (X-JouleLab-Proxy-Key). Only then is
+  X-Forwarded-For trusted, so a browser cannot fake being "local".
+* A request without the key is accepted only when it comes straight from this computer
+  (curl, scripts, /docs). Anything else gets 401, even if uvicorn listens on 0.0.0.0.
+* Build / upload / debug / terminal input additionally require the original browser to be
+  on this computer, unless DEV_ALLOW_REMOTE=true.
+"""
+import hmac
 import ipaddress
 
 from fastapi import HTTPException, Request, WebSocket
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import settings
+
+PROXY_HEADER = b"x-joulelab-proxy-key"
 
 
 def _loopback(host: str | None) -> bool:
@@ -17,19 +29,46 @@ def _loopback(host: str | None) -> bool:
         return False
 
 
+class AccessMiddleware:
+    """Pure ASGI middleware so it covers HTTP and WebSocket alike."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        given = headers.get(PROXY_HEADER, b"").decode("latin-1")
+        key = settings.proxy_key
+        via_proxy = bool(key and given and hmac.compare_digest(given, key))
+        client = scope.get("client")
+        direct_local = _loopback(client[0] if client else None)
+        if not via_proxy and not direct_local:
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+                return
+            body = b'{"detail":"Not allowed. Use the JouleLab website (port 3000), or call the API from this computer."}'
+            await send({"type": "http.response.start", "status": 401,
+                        "headers": [(b"content-type", b"application/json")]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        scope.setdefault("state", {})["via_proxy"] = via_proxy
+        await self.app(scope, receive, send)
+
+
 def is_local(conn: Request | WebSocket) -> bool:
     if settings.dev_allow_remote:
         return True
-    client = conn.client.host if conn.client else None
-    if not _loopback(client):
-        return False
-    # Requests through the frontend proxy come from 127.0.0.1; the proxy adds X-Forwarded-For
-    # with the browser's real address, which must be local too.
+    via_proxy = conn.scope.get("state", {}).get("via_proxy", False)
+    if not via_proxy:  # direct call; the middleware already required it to come from this computer
+        return _loopback(conn.client.host if conn.client else None)
     fwd = conn.headers.get("x-forwarded-for")
-    return fwd is None or all(_loopback(x.strip()) for x in fwd.split(","))
+    # the proxy appends the real browser address, so a forged value cannot hide it
+    return fwd is not None and all(_loopback(x.strip()) for x in fwd.split(","))
 
 
-LOCAL_ONLY_MESSAGE = ("Build, upload and debug are only allowed from this computer. "
+LOCAL_ONLY_MESSAGE = ("Build, upload, debug and terminal input are only allowed from this computer. "
                       "Set DEV_ALLOW_REMOTE=true in backend/.env to allow other machines (they could then run "
                       "programs and flash boards on this computer).")
 

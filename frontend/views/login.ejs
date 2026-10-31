@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in · JouleLab</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <section class="ws login">
+    <p class="eyebrow mono">JOULELAB</p>
+    <h1>Log in.</h1>
+    <form method="post" action="/login" class="devbar">
+      <label><span class="mono small">PASSWORD</span><input type="password" name="password" autofocus required autocomplete="current-password"></label>
+      <button class="devbtn" type="submit">Log in</button>
+      <% if (error) { %><p class="mono small login-err"><%= error %></p><% } %>
+    </form>
+  </section>
+</body>
+</html>

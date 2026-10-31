@@ -49,6 +49,11 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
+def via_proxy(browser_ip):
+    """Headers the frontend proxy sends for a browser at browser_ip."""
+    return {"X-JouleLab-Proxy-Key": settings.proxy_key, "X-Forwarded-For": browser_ip}
+
+
 def wait_job(c, timeout=10):
     end = time.time() + timeout
     while time.time() < end:
@@ -176,10 +181,10 @@ def test_debug_session_takes_gdb_commands(client):
 
 
 def test_remote_clients_are_refused(client):
-    r = client.post("/api/development/build", json={"board": "uno"}, headers={"X-Forwarded-For": "192.168.1.50"})
+    r = client.post("/api/development/build", json={"board": "uno"}, headers=via_proxy("192.168.1.50"))
     assert r.status_code == 403 and "DEV_ALLOW_REMOTE" in r.json()["detail"]
     r = client.post("/api/firmware/upload", json={"board": "ESP32", "source_code": "x"},
-                    headers={"X-Forwarded-For": "10.0.0.7"})
+                    headers=via_proxy("10.0.0.7"))
     assert r.status_code == 403
 
 
@@ -214,7 +219,7 @@ def test_terminal_send_reaches_the_board(client):
             except BlockingIOError:
                 time.sleep(0.05)
         assert got == b"led on\r\n"
-        r = client.post("/api/hardware/send", json={"text": "x"}, headers={"X-Forwarded-For": "192.168.1.9"})
+        r = client.post("/api/hardware/send", json={"text": "x"}, headers=via_proxy("192.168.1.9"))
         assert r.status_code == 403
     finally:
         client.post("/api/hardware/disconnect")

@@ -277,3 +277,6 @@ input[type=range]{width:100%;accent-color:var(--acc);margin:16px 0 6px}
 #termform[hidden]{display:none}
 #termform select{background:#0a1714;border:1px solid #24463d;border-radius:8px;padding:9px;color:#d8efe7;font:inherit;font-size:12px}
 #termform select{flex:0 0 auto;width:auto;min-width:0;max-width:110px}
+.login .devbar{max-width:460px;display:flex;flex-direction:column;gap:16px}
+.login input{padding:12px 14px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:16px}
+.login-err{color:#d9472f}

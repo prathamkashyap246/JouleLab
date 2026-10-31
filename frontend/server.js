@@ -1,7 +1,10 @@
 const express = require('express');
 const path = require('path');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const auth = require('./auth');
 const app = express();
+const HOST = process.env.HOST || '127.0.0.1';
+auth.checkStartup(HOST);
 
 // FastAPI backend (measurements, live stream, AI suggestions).
 // The browser calls /backend/... on this server and Express forwards it, so there is
@@ -15,6 +18,9 @@ const backend = createProxyMiddleware({
   pathFilter: '/backend',
   pathRewrite: { '^/backend': '' },
   on: {
+    // prove to the backend that the request comes from this proxy (replaces any client-sent value)
+    proxyReq: (proxyReq) => proxyReq.setHeader('x-joulelab-proxy-key', auth.getProxyKey()),
+    proxyReqWs: (proxyReq) => proxyReq.setHeader('x-joulelab-proxy-key', auth.getProxyKey()),
     error: (err, req, res) => {
       if (res && typeof res.status === 'function' && !res.headersSent) {
         res.status(502).json({ detail: 'JouleLab backend is not reachable. Start it with: uvicorn app.main:app --reload' });
@@ -107,6 +113,7 @@ function simulate(board, pattern, capacity, interval) {
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+auth.install(app); // login wall when JOULELAB_PASSWORD is set
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(backend); // must come before express.json so request bodies are forwarded untouched
@@ -139,5 +146,10 @@ app.get('/api/report', (req, res) => {
   res.type('text/plain').attachment('joulelab-energy-report.txt').send(lines.join('\n'));
 });
 
-const server = app.listen(process.env.PORT || 3000, () => console.log('JouleLab on http://localhost:' + (process.env.PORT || 3000) + ' · backend ' + BACKEND_URL));
-server.on('upgrade', backend.upgrade); // forwards the /backend/ws/live-data WebSocket
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, HOST, () => console.log(`JouleLab on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · backend ${BACKEND_URL}` +
+  (auth.enabled ? ' · password login ON' : ' · this computer only (set HOST and JOULELAB_PASSWORD to share)')));
+server.on('upgrade', (req, socket, head) => { // WebSockets (/backend/ws/...) need the login too
+  if (!auth.loggedIn(req)) { socket.destroy(); return; }
+  backend.upgrade(req, socket, head);
+});
