@@ -23,183 +23,54 @@ void loop() {
 `;
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const days = d => d >= 365 ? (d / 365).toFixed(1) + ' yr' : d.toFixed(1) + ' d';
-let hot = new Set(), last = null, timer, peekKey = null;
-const undoStack = [], dismissed = new Set();
-const LH = 22, PAD = 20;                       // editor line height and top padding (must match CSS)
-const hl = $('edhl'), peek = $('peek');
+let hot = new Set(), last = null, prev = null, timer;
 
 function gutter() {
-  const n = ed.value.split('\n').length, ch = new Map((last ? last.changes : []).filter(c => !dismissed.has(c.key)).map(c => [c.line, c]));
-  gut.innerHTML = Array.from({ length: n }, (_, i) => ch.has(i + 1)
-    ? `<span class="hot chg" data-k="${ch.get(i + 1).key}" title="Proposed change: click to view">${i + 1}</span>`
-    : `<span class="${hot.has(i + 1) ? 'hot' : ''}">${i + 1}</span>`).join('\n');
+  const n = ed.value.split('\n').length;
+  gut.innerHTML = Array.from({ length: n }, (_, i) => `<span class="${hot.has(i + 1) ? 'hot' : ''}">${i + 1}</span>`).join('\n');
   gut.scrollTop = ed.scrollTop;
 }
-// light-red bands behind the flagged lines (VS Code "removed line" style)
-function paintLines() {
-  const cs = last ? last.changes.filter(c => !dismissed.has(c.key)) : [];
-  hl.innerHTML = cs.map(c => `<div class="hl-del${c.key === peekKey ? ' on' : ''}" style="top:${PAD + (c.line - 1) * LH}px;height:${c.del * LH}px"></div>`).join('');
-  hl.style.transform = `translate(${-ed.scrollLeft}px,${-ed.scrollTop}px)`;
-  if (peekKey) placePeek();
-}
-function changeByKey(k) { return last && last.changes.find(c => c.key === k); }
-function placePeek() {
-  const c = changeByKey(peekKey); if (!c) return closePeek();
-  const top = PAD + (c.line - 1 + c.del) * LH - ed.scrollTop + 4, box = $('edbody').clientHeight;
-  peek.style.top = Math.max(4, Math.min(top, box - peek.offsetHeight - 6)) + 'px';
-}
-function openPeek(k) {
-  const c = changeByKey(k); if (!c) return;
-  peekKey = k;
-  const row = (sign, cls, t) => `<div class="pk-row ${cls}"><span class="pk-sign">${sign}</span><span class="pk-code">${esc(t) || ' '}</span></div>`;
-  peek.innerHTML = `<div class="pk-head"><span class="mono small pk-sev ${c.sev}">${c.sev.toUpperCase()} · LINE ${c.line}</span><b>${esc(c.title)}</b>
-      <button class="pk-x" id="pk-x" title="Close (Esc)">×</button></div>
-    <div class="pk-diff mono">${c.before.map(t => row('−', 'pk-del', t)).join('')}${c.after.map(t => row('+', 'pk-add', t)).join('')}</div>
-    <p class="pk-why">${esc(c.detail)}</p>
-    <p class="pk-meta mono"><span>Estimate</span>${esc(c.estimate)}</p>
-    <p class="pk-meta mono"><span>Behaviour</span>${esc(c.behavior)}</p>
-    <div class="pk-btns"><button class="devbtn" id="pk-accept">Accept change</button><button class="chip2" id="pk-dismiss">Dismiss</button>
-      <span class="mono small">${last.changes.filter(x => !dismissed.has(x.key)).length} proposed</span></div>`;
-  peek.hidden = false;
-  placePeek(); paintLines();
-  $('pk-x').onclick = closePeek;
-  $('pk-accept').onclick = () => acceptChange(c);
-  $('pk-dismiss').onclick = () => { dismissed.add(c.key); closePeek(); gutter(); paintLines(); };
-}
-function closePeek() { peekKey = null; peek.hidden = true; paintLines(); }
-function pushUndo() { undoStack.push(ed.value); if (undoStack.length > 50) undoStack.shift(); $('undo').disabled = false; }
-function acceptChange(c) {
-  pushUndo();
-  const ls = ed.value.split('\n');
-  ls.splice(c.line - 1, c.del, ...c.after);
-  ed.value = ls.join('\n');
-  closePeek(); analyze().then(() => {               // walk to the next proposal, like "next change" in VS Code
-    const nxt = last && last.changes.find(x => !dismissed.has(x.key) && x.line >= c.line);
-    $('status').textContent = `Accepted: ${c.title}.` + (nxt ? ' Next proposal shown.' : '');
-    if (nxt) { scrollToLine(nxt.line); openPeek(nxt.key); }
-  });
-}
-function scrollToLine(l) { ed.scrollTop = Math.max(0, (l - 4) * LH); gut.scrollTop = ed.scrollTop; paintLines(); }
 function goto(l) {
   const ls = ed.value.split('\n'), start = ls.slice(0, l - 1).join('\n').length + (l > 1 ? 1 : 0);
-  ed.focus(); ed.setSelectionRange(start, start + ls[l - 1].length); scrollToLine(l);
+  ed.focus(); ed.setSelectionRange(start, start + ls[l - 1].length); ed.scrollTop = Math.max(0, (l - 4) * 22);
 }
-function lineAtCaret() { return ed.value.slice(0, ed.selectionStart).split('\n').length; }
-
 async function analyze() {
-  if (!ed.value.trim()) { $('status').textContent = 'Nothing to analyze yet.'; return; }
-  $('status').textContent = 'Analyzing…';
+  if (!ed.value.trim()) { $('status').textContent = '[WARN] editor empty'; return; }
+  $('status').textContent = '[ .. ] analyzing';
   try {
     const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: ed.value, board: $('board').value, interval: +$('interval').value, capacity: +$('capacity').value }) }).then(r => r.json());
     if (r.error) throw new Error(r.error);
-    last = r; hot = new Set(r.findings.filter(f => f.line).map(f => f.line));
-    [...dismissed].forEach(k => { if (!r.changes.some(c => c.key === k)) dismissed.delete(k); });
-    if (peekKey && !changeByKey(peekKey)) closePeek();
-    gutter(); paintLines();
+    last = r; hot = new Set(r.findings.filter(f => f.line).map(f => f.line)); gutter();
     $('score').textContent = r.score;
-    $('score').style.color = r.score >= 80 ? '#1a6b5f' : r.score >= 50 ? '#d98a1f' : '#d9472f';
-    $('verdict').textContent = r.findings.length ? `${r.findings.length} issue${r.findings.length > 1 ? 's' : ''} found.` : 'No wasteful patterns detected.';
+    $('score').style.color = r.score >= 80 ? '#2e7d32' : r.score >= 50 ? '#b26a00' : '#c62828';
+    $('verdict').textContent = r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : '0 findings';
     $('dnow').textContent = days(r.now.days); $('dafter').textContent = days(r.after.days);
-    $('finds').innerHTML = r.findings.map(f => `<div class="find ${f.sev}"><span class="mono small">${f.sev.toUpperCase()}${f.line ? ' · LINE ' + f.line : ''}</span><b>${esc(f.title)}</b><p>${esc(f.detail)}</p>${f.snippet ? `<code class="mono">${esc(f.snippet)}</code>` : ''}${f.change && !dismissed.has(f.change) ? `<button class="chip2" data-k="${f.change}">Show change</button>` : ''}${f.line ? `<button class="chip2" data-l="${f.line}">Go to line</button>` : ''}</div>`).join('');
-    const open = r.changes.filter(c => !dismissed.has(c.key)).length;
-    $('apply').disabled = !open;
-    $('status').textContent = open ? `${open} proposed change${open > 1 ? 's' : ''}: lines shaded red. Click one to review.` : 'Done.';
-  } catch (e) { $('status').textContent = e.message; }
+    $('finds').innerHTML = r.findings.map(f => `<div class="find ${f.sev}"><span class="mono small">${f.sev.toUpperCase()}${f.line ? ' · LINE ' + f.line : ''}</span><b>${esc(f.title)}</b><p>${esc(f.detail)}</p>${f.snippet ? `<code class="mono">${esc(f.snippet)}</code>` : ''}${f.line ? `<button class="chip2" data-l="${f.line}">Go to line</button>` : ''}</div>`).join('');
+    $('apply').disabled = !r.applied; $('status').textContent = r.applied ? `[ OK ] ${r.findings.length} findings · ${r.applied} automatic fix${r.applied > 1 ? 'es' : ''} available` : `[ OK ] ${r.findings.length} findings`;
+  } catch (e) { $('status').textContent = '[FAIL] ' + e.message; }
 }
-$('finds').addEventListener('click', e => {
-  const k = e.target.dataset.k, l = e.target.dataset.l;
-  if (k) { const c = changeByKey(k); if (c) { scrollToLine(c.line); openPeek(k); } }
-  else if (l) goto(+l);
-});
-gut.addEventListener('click', e => { const k = e.target.dataset && e.target.dataset.k; if (k) openPeek(k); });
-ed.addEventListener('click', () => {
-  if (!last) return;
-  const l = lineAtCaret(), c = last.changes.find(c => !dismissed.has(c.key) && l >= c.line && l < c.line + c.del);
-  if (c) openPeek(c.key); else if (peekKey) closePeek();
-});
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && peekKey) closePeek(); });
+$('finds').addEventListener('click', e => { const l = e.target.dataset.l; if (l) goto(+l); });
 $('analyze').onclick = analyze;
-$('sample').onclick = () => { ed.value = SAMPLE; dismissed.clear(); gutter(); analyze(); };
-$('apply').onclick = () => {
-  if (!last) return;
-  const cs = last.changes.filter(c => !dismissed.has(c.key)); if (!cs.length) return;
-  pushUndo();
-  const ls = ed.value.split('\n');
-  [...cs].sort((a, b) => b.line - a.line).forEach(c => ls.splice(c.line - 1, c.del, ...c.after));
-  ed.value = ls.join('\n'); closePeek(); gutter(); analyze().then(() => { $('status').textContent = `Accepted ${cs.length} change${cs.length > 1 ? 's' : ''}. Undo restores the previous code.`; });
-};
-$('undo').onclick = () => { if (!undoStack.length) return; ed.value = undoStack.pop(); $('undo').disabled = !undoStack.length; closePeek(); gutter(); analyze(); };
-$('copy').onclick = () => navigator.clipboard.writeText(ed.value).then(() => { $('status').textContent = 'Copied to clipboard.'; });
+$('sample').onclick = () => { ed.value = SAMPLE; gutter(); analyze(); };
+$('apply').onclick = () => { if (!last) return; prev = ed.value; ed.value = last.fixedCode; $('undo').disabled = false; gutter(); analyze(); };
+$('undo').onclick = () => { if (prev == null) return; ed.value = prev; prev = null; $('undo').disabled = true; gutter(); analyze(); };
+$('copy').onclick = () => navigator.clipboard.writeText(ed.value).then(() => { $('status').textContent = '[ OK ] copied'; });
 $('download').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ed.value], { type: 'text/plain' })); a.download = 'sketch.ino'; a.click(); };
-$('clear').onclick = () => { ed.value = ''; hot.clear(); last = null; dismissed.clear(); closePeek(); gutter(); $('finds').innerHTML = ''; $('score').textContent = '–'; $('dnow').textContent = $('dafter').textContent = '–'; $('verdict').textContent = 'Run an analysis to see results.'; $('apply').disabled = true; };
-ed.addEventListener('input', () => { if (peekKey) closePeek(); gutter(); paintLines(); clearTimeout(timer); timer = setTimeout(analyze, 700); });
-ed.addEventListener('scroll', () => { gut.scrollTop = ed.scrollTop; paintLines(); });
+$('clear').onclick = () => { ed.value = ''; hot.clear(); last = null; gutter(); $('finds').innerHTML = ''; $('score').textContent = '–'; $('dnow').textContent = $('dafter').textContent = '–'; $('verdict').textContent = 'No analysis yet.'; $('apply').disabled = true; };
+ed.addEventListener('input', () => { gutter(); clearTimeout(timer); timer = setTimeout(analyze, 700); });
+ed.addEventListener('scroll', () => { gut.scrollTop = ed.scrollTop; });
 ['board', 'interval', 'capacity'].forEach(id => $(id).addEventListener('change', analyze));
 gutter();
-
-// ---- Before / after on hardware: two recorded sessions, compared with a noise check ----
-const BA_WIN_S = 5;
-async function baSessions() {
-  const opts = (sel, list, none) => { const v = $(sel).value; $(sel).innerHTML = (none ? '<option value="">—</option>' : '') + list.map(s => `<option value="${s.id}">#${s.id} ${esc(s.name || '')}${s.status === 'active' ? ' (recording)' : ''}</option>`).join(''); if (v) $(sel).value = v; };
-  try {
-    const d = await fetch('/backend/api/sessions?limit=50').then(r => { if (!r.ok) throw new Error('Backend not reachable.'); return r.json(); });
-    const list = d.sessions.filter(s => s.status !== 'active');
-    opts('ba-a', list); opts('ba-b', list); opts('ba-r', list, true);
-    if (list.length >= 2 && !$('ba-a').dataset.init) { $('ba-a').value = list[1].id; $('ba-b').value = list[0].id; $('ba-a').dataset.init = '1'; }
-    if (!list.length) $('ba-out').innerHTML = '<p class="mono small">No finished sessions yet. Record them in Lab → Live hardware.</p>';
-  } catch (e) { $('ba-out').innerHTML = `<p class="mono small">${esc(e.message)}</p>`; }
-}
-async function baStats(id) {
-  const [s, h] = await Promise.all([
-    fetch(`/backend/api/sessions/${id}`).then(r => r.json()),
-    fetch(`/backend/api/measurements/history?session_id=${id}&limit=200000`).then(r => r.json())]);
-  const xs = (h.samples || []).filter(x => x.current_ma != null);
-  if (xs.length < 20) throw new Error(`Session #${id} has too few stored samples.`);
-  const t0 = xs[0].t_us, dur = (xs[xs.length - 1].t_us - t0) / 1e6;
-  const mean = a => a.reduce((p, q) => p + q, 0) / a.length;
-  const I = mean(xs.map(x => x.current_ma)), P = mean(xs.map(x => x.power_mw != null ? x.power_mw : x.current_ma * (x.voltage_v || 5)));
-  const wins = new Map(); xs.forEach(x => { const k = Math.floor((x.t_us - t0) / 1e6 / BA_WIN_S); (wins.get(k) || wins.set(k, []).get(k)).push(x.power_mw != null ? x.power_mw : x.current_ma * (x.voltage_v || 5)); });
-  const wm = [...wins.values()].filter(a => a.length > 5).map(mean);
-  const sd = wm.length > 1 ? Math.sqrt(wm.reduce((p, q) => p + (q - mean(wm)) ** 2, 0) / (wm.length - 1)) : 0;
-  return { id, name: s.name, I, P, dur, se: wm.length > 1 ? sd / Math.sqrt(wm.length) : 0, windows: wm.length, n: xs.length };
-}
-async function baCompare() {
-  const a = $('ba-a').value, b = $('ba-b').value, r = $('ba-r').value;
-  if (!a || !b || a === b) { $('ba-out').innerHTML = '<p class="mono small">Choose two different sessions.</p>'; return; }
-  $('ba-out').innerHTML = '<p class="mono small">Computing…</p>';
-  try {
-    const [A, B, R] = await Promise.all([baStats(a), baStats(b), r ? baStats(r) : null]);
-    const cap = +$('capacity').value || 2000, life = x => days(cap * 0.76 / x.I / 24);
-    const pct = (x, y) => (y / x - 1) * 100, fp = v => (v > 0 ? '+' : '') + v.toFixed(1) + ' %';
-    const dP = B.P - A.P, noise = 3 * Math.sqrt(A.se ** 2 + B.se ** 2);
-    const rep = R ? Math.abs(R.P - A.P) : null;
-    const real = Math.abs(dP) > noise && (rep == null || Math.abs(dP) > 3 * rep);
-    const row = (k, x, y, fmt, rr) => `<tr><td>${k}</td><td>${fmt(x)}</td>${R ? `<td>${fmt(rr)}</td>` : ''}<td>${fmt(y)}</td><td class="${y < x ? 'good' : y > x ? 'bad' : ''}">${fp(pct(x, y))}</td></tr>`;
-    $('ba-out').innerHTML = `<table class="ba-t mono"><thead><tr><th></th><th>Before #${A.id}</th>${R ? `<th>Repeat #${R.id}</th>` : ''}<th>After #${B.id}</th><th>Change</th></tr></thead><tbody>
-      ${row('Average power', A.P, B.P, v => v.toFixed(1) + ' mW', R && R.P)}
-      ${row('Average current', A.I, B.I, v => v.toFixed(2) + ' mA', R && R.I)}
-      ${row('Energy per minute', A.P * 60, B.P * 60, v => (v / 1000).toFixed(2) + ' J', R && R.P * 60)}
-      <tr><td>Battery life (${cap} mAh, 76 % usable)</td><td>${life(A)}</td>${R ? `<td>${life(R)}</td>` : ''}<td>${life(B)}</td><td></td></tr>
-      <tr><td>Recorded</td><td>${A.dur.toFixed(0)} s</td>${R ? `<td>${R.dur.toFixed(0)} s</td>` : ''}<td>${B.dur.toFixed(0)} s</td><td></td></tr></tbody></table>
-      <p class="ba-verdict ${real ? 'good' : 'warn'}">${real
-        ? `Measured change: ${fp(pct(A.P, B.P))} in average power. That is larger than the run-to-run noise (±${noise.toFixed(1)} mW from ${BA_WIN_S} s windows${rep != null ? `; repeat of before differed by ${rep.toFixed(1)} mW` : ''}).`
-        : `Within noise: the difference (${dP.toFixed(1)} mW) is not clearly larger than the run-to-run variation (±${noise.toFixed(1)} mW${rep != null ? `; repeat of before differed by ${rep.toFixed(1)} mW` : ''}). Record longer sessions or check the change was flashed.`}</p>
-      <p class="mono small">Average power is used, not total energy, because the sessions have different lengths. Module-level breakdown: Lab → Module separation → Session.</p>`;
-  } catch (e) { $('ba-out').innerHTML = `<p class="mono small">${esc(e.message)}</p>`; }
-}
-$('ba-run').onclick = baCompare;
-$('ba-refresh').onclick = baSessions;
-baSessions();
 
 // ---- AI suggestions (FastAPI backend via /backend proxy) ----
 // Sends the sketch plus any live per-function measurements the backend has collected.
 // The backend answers honestly when no AI key is configured; nothing is invented here.
 async function aiSuggest() {
-  if (!ed.value.trim()) { $('status').textContent = 'Paste some firmware first.'; return; }
+  if (!ed.value.trim()) { $('status').textContent = '[WARN] editor empty'; return; }
   const out = $('ai-out'), btn = $('ai');
-  btn.disabled = true; $('status').textContent = 'Asking the AI backend…';
-  out.innerHTML = '<p class="mono small ai-head">AI SUGGESTIONS · WORKING…</p>';
+  btn.disabled = true; $('status').textContent = '[ .. ] LLM request';
+  out.innerHTML = '<p class="mono small ai-head">LLM SUGGESTIONS · WAITING</p>';
   try {
     let measurements = [];
     try {
@@ -218,17 +89,17 @@ async function aiSuggest() {
     if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'AI suggestion service failed (' + res.status + ').');
     const r = data.report, list = a => a && a.length ? '<ul>' + a.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>' : '';
     const sev = { high: 'high', medium: 'medium', low: 'low' };
-    out.innerHTML = `<p class="mono small ai-head">AI SUGGESTIONS · ${measurements.length ? measurements.length + ' MEASURED FUNCTIONS' : 'CODE ONLY, NO LIVE DATA'}</p>
+    out.innerHTML = `<p class="mono small ai-head">LLM SUGGESTIONS · UNVERIFIED · ${measurements.length ? measurements.length + ' MEASURED FUNCTIONS' : 'CODE ONLY, NO LIVE DATA'}</p>
       <p class="ai-sum">${esc(r.summary)}</p>
       ${r.suggestions.map(s => `<div class="find ${sev[s.confidence] || 'low'}"><span class="mono small">${esc(s.function_name)} · ${esc(s.confidence.toUpperCase())} CONFIDENCE</span><b>${esc(s.recommendation)}</b>
         <p><strong>Observed:</strong> ${esc(s.observed_measurement)}</p><p><strong>Issue:</strong> ${esc(s.potential_issue)}</p>
         <p><strong>Why:</strong> ${esc(s.rationale)}</p><p><strong>Trade-offs:</strong> ${esc(s.tradeoffs)}</p></div>`).join('')}
       ${r.validation_steps.length ? '<p class="mono small ai-head">VALIDATE ON HARDWARE</p>' + list(r.validation_steps) : ''}
       ${r.caveats.length ? '<p class="mono small ai-head">CAVEATS</p>' + list(r.caveats) : ''}`;
-    $('status').textContent = r.suggestions.length ? `${r.suggestions.length} AI suggestion${r.suggestions.length > 1 ? 's' : ''}.` : 'AI returned no suggestions.';
+    $('status').textContent = `[ OK ] ${r.suggestions.length} LLM suggestion${r.suggestions.length === 1 ? '' : 's'}`;
   } catch (e) {
-    out.innerHTML = `<div class="find high"><span class="mono small">AI BACKEND</span><b>Could not get suggestions</b><p>${esc(e.message)}</p></div>`;
-    $('status').textContent = e.message;
+    out.innerHTML = `<div class="find high"><span class="mono small">[FAIL] LLM BACKEND</span><b>No suggestions</b><p>${esc(e.message)}</p></div>`;
+    $('status').textContent = '[FAIL] ' + e.message;
   } finally { btn.disabled = false; }
 }
 $('ai').onclick = aiSuggest;
@@ -257,7 +128,8 @@ function conAppend(el, text, cls) {
   while (el.childNodes.length > 4000) el.removeChild(el.firstChild);
   if (stick) el.scrollTop = el.scrollHeight;
 }
-const lineClass = t => t.startsWith('[JouleLab]') ? 'c-jl' : /\berror\b|failed|FAILED|undefined reference/i.test(t) ? 'c-err' : /warning/i.test(t) ? 'c-warn' : /SUCCESS|succeeded/.test(t) ? 'c-ok' : '';
+const jl = t => t.replace(/^\[JouleLab\] ?/gm, 'jl> '); // backend tags its own lines "[JouleLab]"
+const lineClass = t => /^(jl>|\[JouleLab\])/.test(t) ? 'c-jl' : /\berror\b|failed|FAILED|undefined reference/i.test(t) ? 'c-err' : /warning/i.test(t) ? 'c-warn' : /SUCCESS|succeeded/.test(t) ? 'c-ok' : '';
 function showCon(which) {
   document.querySelectorAll('.ctabs [data-con]').forEach(b => b.classList.toggle('on', b.dataset.con === which));
   conOut.hidden = which !== 'out'; conMon.hidden = which !== 'mon'; conLog.hidden = which !== 'log';
@@ -278,8 +150,8 @@ function devRender() {
   const open = dev.monitorPort && !['disconnected', 'error'].includes(dev.monitorState);
   $('monitor').textContent = open ? `Close monitor (${dev.monitorPort.replace(/^\/dev\//, '')})` : 'Serial monitor';
   $('monitor').classList.toggle('on', !!open);
-  if (!dev.pio) { $('devinfo').textContent = 'PlatformIO is not installed: in backend/ run  python -m pip install platformio  and restart the backend.'; return; }
-  if (b) $('devinfo').textContent = `Editor → ${b.main_file} · Upload: ${b.upload_method === 'stlink' ? 'ST-LINK (SWD), no port needed' : 'USB serial port'} · Debug: ${b.debug_supported ? 'yes' : 'no'}`;
+  if (!dev.pio) { $('devinfo').textContent = '[FAIL] PlatformIO not installed · in backend/: python -m pip install platformio, then restart the backend'; return; }
+  if (b) $('devinfo').textContent = `Editor: ${b.main_file} · Upload: ${b.upload_method === 'stlink' ? 'ST-LINK (SWD), no port needed' : 'USB serial port'} · Debug: ${b.debug_supported ? 'yes' : 'no'}`;
 }
 async function loadBoards() {
   try {
@@ -288,7 +160,7 @@ async function loadBoards() {
     let saved = null; try { saved = localStorage.getItem('jl.devboard'); } catch (e) { }
     $('devboard').innerHTML = d.boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
     if (saved && d.boards.some(b => b.id === saved)) $('devboard').value = saved;
-  } catch (e) { $('devinfo').textContent = e.message; dev.pio = false; }
+  } catch (e) { $('devinfo').textContent = '[FAIL] ' + e.message; dev.pio = false; }
   devRender();
 }
 async function loadPorts() {
@@ -323,14 +195,14 @@ $('devport').addEventListener('change', () => {
 async function runJob(kind) {
   const b = devBoard(); if (!b) return;
   showCon('out');
-  if (!ed.value.trim()) { conAppend(conOut, '\n[JouleLab] The editor is empty. Use "Open board project in editor" or paste code first.\n', 'c-err'); return; }
+  if (!ed.value.trim()) { conAppend(conOut, '\njl> The editor is empty. Use "Open board project in editor" or paste code first.\n', 'c-err'); return; }
   const body = { board: b.id, source: ed.value };
   if (kind === 'upload') body.port = $('devport').value || null;
   conOut.textContent = ''; conOut.dataset.fresh = '1';
   try {
     const path = kind === 'debug' ? DEV + '/debug/start' : DEV + '/' + kind;
     dev.job = await devApi(path, body); devRender();
-  } catch (e) { conAppend(conOut, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+  } catch (e) { conAppend(conOut, '\njl> ' + e.message + '\n', 'c-err'); }
 }
 $('verify').onclick = () => runJob('build');
 $('upload').onclick = () => runJob('upload');
@@ -342,48 +214,48 @@ async function openTerminalAfterRun() {
   if (b && b.needs_upload_port && open && dev.monitorPort !== uport) {
     // the main connection is busy measuring another board: show this board on the log port
     showCon('log');
-    if (logp.port === uport && logp.state !== 'disconnected') { conAppend(conLog, `\n[JouleLab] Program flashed. Output from ${uport}:\n`, 'c-jl'); return; }
+    if (logp.port === uport && logp.state !== 'disconnected') { conAppend(conLog, `\njl> Program flashed. Output from ${uport}:\n`, 'c-jl'); return; }
     try { const st = await devApi(HW + '/logport/connect', { port: uport, baudrate: 115200 }); logp.port = st.port; logp.state = st.state; $('logportsel').value = uport; }
-    catch (e) { conAppend(conLog, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+    catch (e) { conAppend(conLog, '\njl> ' + e.message + '\n', 'c-err'); }
     renderLog(); return;
   }
   showCon('mon');
-  if (open) { conAppend(conMon, `\n[JouleLab] Program flashed. Output from ${dev.monitorPort}:\n`, 'c-jl'); return; }
+  if (open) { conAppend(conMon, `\njl> Program flashed. Output from ${dev.monitorPort}:\n`, 'c-jl'); return; }
   const port = $('devport').value;
-  if (!port || port === '__other') { conAppend(conMon, '\n[JouleLab] Flashed. Choose the board\'s serial port to see its output.\n', 'c-err'); return; }
+  if (!port || port === '__other') { conAppend(conMon, '\njl> Flashed. Choose the board\'s serial port to see its output.\n', 'c-err'); return; }
   try {
     const st = await devApi(HW + '/connect', { port, baudrate: monBaud() });
     dev.monitorPort = st.port; dev.monitorState = st.state;
-    conAppend(conMon, `\n[JouleLab] Program flashed. Terminal connected to ${port} at ${monBaud()} baud.\n`, 'c-jl');
-    if (b && b.id === 'nucleo_f446re') conAppend(conMon, '[JouleLab] The JouleLab firmware sends binary measurements: watch them in Lab → Live hardware. Text your code prints appears here.\n', 'c-jl');
-  } catch (e) { conAppend(conMon, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+    conAppend(conMon, `\njl> Program flashed. Terminal connected to ${port} at ${monBaud()} baud.\n`, 'c-jl');
+    if (b && b.id === 'nucleo_f446re') conAppend(conMon, 'jl> The JouleLab firmware sends binary measurements: watch them in Lab → Live hardware. Text your code prints appears here.\n', 'c-jl');
+  } catch (e) { conAppend(conMon, '\njl> ' + e.message + '\n', 'c-err'); }
   devRender(); loadPorts();
 }
 $('termform').addEventListener('submit', async e => {
   e.preventDefault();
   const text = $('termcmd').value;
   try { await devApi(HW + (dev.tab === 'log' ? '/logport/send' : '/send'), { text, line_ending: $('termeol').value.replace('\\r', '\r').replace('\\n', '\n') }); $('termcmd').value = ''; }
-  catch (err) { conAppend(dev.tab === 'log' ? conLog : conMon, '\n[JouleLab] ' + err.message + '\n', 'c-err'); }
+  catch (err) { conAppend(dev.tab === 'log' ? conLog : conMon, '\njl> ' + err.message + '\n', 'c-err'); }
 });
 $('debug').onclick = () => runJob('debug');
-$('stop').onclick = async () => { try { await devApi(DEV + '/stop', {}); } catch (e) { conAppend(conOut, '\n[JouleLab] ' + e.message + '\n', 'c-err'); } };
+$('stop').onclick = async () => { try { await devApi(DEV + '/stop', {}); } catch (e) { conAppend(conOut, '\njl> ' + e.message + '\n', 'c-err'); } };
 
 $('openproj').onclick = async () => {
   const b = devBoard(); if (!b) return;
   if (ed.value.trim() && !confirm(`Replace the editor contents with ${b.name}'s ${b.main_file}?`)) return;
-  try { const d = await devApi(`${DEV}/project/${b.id}`); ed.value = d.source; hot.clear(); gutter(); ed.scrollTop = 0; $('status').textContent = `Opened ${b.main_file} (${b.name}).`; }
-  catch (e) { $('status').textContent = e.message; }
+  try { const d = await devApi(`${DEV}/project/${b.id}`); ed.value = d.source; hot.clear(); gutter(); ed.scrollTop = 0; $('status').textContent = `[ OK ] opened ${b.main_file} (${b.name})`; }
+  catch (e) { $('status').textContent = '[FAIL] ' + e.message; }
 };
 $('resetproj').onclick = async () => {
   const b = devBoard(); if (!b) return;
   if (!confirm(`Restore ${b.name}'s project from the JouleLab template? Changes to ${b.main_file} in the project are lost.`)) return;
-  try { const d = await devApi(`${DEV}/project/${b.id}/reset`, {}); ed.value = d.source; hot.clear(); gutter(); $('status').textContent = `${b.name} project restored.`; }
-  catch (e) { $('status').textContent = e.message; }
+  try { const d = await devApi(`${DEV}/project/${b.id}/reset`, {}); ed.value = d.source; hot.clear(); gutter(); $('status').textContent = `[ OK ] ${b.name} project restored`; }
+  catch (e) { $('status').textContent = '[FAIL] ' + e.message; }
 };
 
 $('gdbform').addEventListener('submit', async e => {
   e.preventDefault(); const c = $('gdbcmd').value.trim(); if (!c) return;
-  try { await devApi(DEV + '/debug/command', { command: c }); $('gdbcmd').value = ''; } catch (err) { conAppend(conOut, '\n[JouleLab] ' + err.message + '\n', 'c-err'); }
+  try { await devApi(DEV + '/debug/command', { command: c }); $('gdbcmd').value = ''; } catch (err) { conAppend(conOut, '\njl> ' + err.message + '\n', 'c-err'); }
 });
 document.querySelectorAll('[data-gdb]').forEach(b => b.addEventListener('click', () => { $('gdbcmd').value = b.dataset.gdb; $('gdbform').requestSubmit(); }));
 
@@ -393,7 +265,7 @@ $('monitor').onclick = async () => {
   try {
     const st = open ? await devApi(HW + '/disconnect', {}) : await devApi(HW + '/connect', { port: $('devport').value || 'auto', baudrate: monBaud() });
     dev.monitorPort = st.port; dev.monitorState = st.state;
-  } catch (e) { conAppend(conMon, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+  } catch (e) { conAppend(conMon, '\njl> ' + e.message + '\n', 'c-err'); }
   devRender(); loadPorts();
 };
 
@@ -408,22 +280,22 @@ function wsConnect(path, onMsg) {
   go();
 }
 wsConnect('/backend/ws/build-output', m => {
-  if (m.type === 'snapshot') { dev.job = m.job; if (m.lines.length) { conOut.textContent = ''; conOut.dataset.fresh = '1'; m.lines.forEach(t => conAppend(conOut, t + '\n', lineClass(t))); } }
-  else if (m.type === 'line') conAppend(conOut, m.text + '\n', lineClass(m.text));
+  if (m.type === 'snapshot') { dev.job = m.job; if (m.lines.length) { conOut.textContent = ''; conOut.dataset.fresh = '1'; m.lines.forEach(t => conAppend(conOut, jl(t) + '\n', lineClass(t))); } }
+  else if (m.type === 'line') conAppend(conOut, jl(m.text) + '\n', lineClass(m.text));
   else if (m.type === 'job') {
     const started = !dev.job || dev.job.id !== m.job.id; dev.job = m.job;
     if (started) { conOut.textContent = ''; conOut.dataset.fresh = '1'; }
     if (dev.runAfter && m.job.kind === 'upload' && m.job.status !== 'running') {
       dev.runAfter = false;
       if (m.job.status === 'succeeded') openTerminalAfterRun();
-      else conAppend(conOut, '[JouleLab] Run stopped: the upload did not succeed, so the program was not started.\n', 'c-err');
+      else conAppend(conOut, 'jl> Run stopped: the upload did not succeed, so the program was not started.\n', 'c-err');
     }
   }
   devRender();
 });
 wsConnect('/backend/ws/serial-monitor', m => {
-  if (m.type === 'snapshot') { if (m.text) { conMon.textContent = ''; conMon.dataset.fresh = '1'; conAppend(conMon, m.text); } if (m.status) { dev.monitorPort = m.status.port; dev.monitorState = m.status.state; devRender(); } }
-  else if (m.type === 'text') conAppend(conMon, m.text);
+  if (m.type === 'snapshot') { if (m.text) { conMon.textContent = ''; conMon.dataset.fresh = '1'; conAppend(conMon, jl(m.text)); } if (m.status) { dev.monitorPort = m.status.port; dev.monitorState = m.status.state; devRender(); } }
+  else if (m.type === 'text') conAppend(conMon, jl(m.text));
 });
 setInterval(() => fetch(HW + '/status').then(r => r.ok ? r.json() : null).then(s => { if (s) { dev.monitorPort = s.port; dev.monitorState = s.state; devRender(); } }).catch(() => { }), 2000);
 loadBoards(); loadPorts();
@@ -442,7 +314,7 @@ $('logconnect').onclick = async () => {
     const st = open ? await devApi(HW + '/logport/disconnect', {})
       : await devApi(HW + '/logport/connect', { port: $('logportsel').value, baudrate: +$('logbaud').value });
     logp.port = st.port; logp.state = st.state;
-  } catch (e) { conAppend(conLog, '\n[JouleLab] ' + e.message + '\n', 'c-err'); }
+  } catch (e) { conAppend(conLog, '\njl> ' + e.message + '\n', 'c-err'); }
   renderLog(); loadPorts();
 };
 wsConnect('/backend/ws/log-monitor', m => {

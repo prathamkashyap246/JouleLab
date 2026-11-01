@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JouleLab</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -14,89 +11,91 @@
 
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow mono">ENERGY BUDGET ESTIMATOR</p>
-      <h1>Every joule.<br><em>Accounted for.</em></h1>
-      <p class="sub">See what your firmware costs.<br>Build devices that live longer.</p>
-      <div class="cta"><a class="run" href="#lab">Run simulation <span class="circ">↗</span></a><a class="wsl mono" href="/workspace">Open workspace ↗</a></div>
-    </div>
-    <div class="hero-art">
-      <p class="mono tag">THE ENERGY LAB<br><span>Hardware, made visible.</span></p>
-      <div class="ring r1"></div><div class="ring r2"></div>
-      <div class="tilt" id="tilt"><div class="stage" id="stage">
-        <div class="layer l1" data-l="1"></div>
-        <div class="layer l2" data-l="2"></div>
-        <div class="layer l3" data-l="3"><i class="chip mono">ESP32<br><small>WROOM-32</small></i><i class="usb"></i><i class="pins pl"></i><i class="pins pr"></i><i class="btn b1"></i><i class="btn b2"></i><i class="led"></i><span class="mono lbl">JL / 032 &nbsp; JOULELAB / MEASURE · UNDERSTAND · OPTIMIZE</span></div>
-        <div class="layer l4" data-l="4"><i class="ant"></i></div>
-        <div class="layer l5 glass" data-l="5"><span class="mono">POWER PROFILING</span><b id="volt">3.30<small>V</small></b><em class="mono" id="amp">I 3.53 mA</em>
-          <svg viewBox="0 0 200 50"><polyline points="0,40 40,40 40,30 70,30 70,18 100,18 100,28 130,28 130,10 200,10" fill="none" stroke="#1a6b5f" stroke-width="2"/></svg></div>
-      </div></div>
-      <ul class="legend" id="legend">
-        <li data-l="5" tabindex="0"><span class="mono">L5 · MEASURE</span><b>Profiling overlay</b><small>Live supply readout: bus voltage and current from the INA219.</small></li>
-        <li data-l="4" tabindex="0"><span class="mono">L4 · RADIO</span><b>Wi-Fi / BLE transmit</b><small>Wi-Fi 802.11 b/g/n and Bluetooth 4.2 + BLE. Transmit peaks near 183 mA, the largest cost in each cycle.</small></li>
-        <li data-l="3" tabindex="0"><span class="mono">L3 · MCU</span><b>ESP32 core</b><small>ESP32-WROOM-32: dual-core Xtensa LX6 at up to 240 MHz, 520 KB SRAM, 4 MB flash, 34 GPIO. Active for milliseconds, then deep sleep at about 10 µA.</small></li>
-        <li data-l="2" tabindex="0"><span class="mono">L2 · POWER</span><b>3.3 V rail</b><small>Regulator and copper traces feeding every firmware phase.</small></li>
-        <li data-l="1" tabindex="0"><span class="mono">L1 · BASE</span><b>Substrate</b><small>Ground reference and mounting plane.</small></li>
-      </ul>
-      <p class="mono cap">Illustrative hardware model</p>
-      <button class="mono explode" id="explode" aria-expanded="false"><b id="exlabel">Explode layers</b> <span>+</span></button>
-    </div>
-    <div class="strip mono"><span>BUILT FOR EMBEDDED DEVELOPERS</span><span>ESP32 &nbsp;•&nbsp; STM32 &nbsp;•&nbsp; BLACK PILL</span></div>
-  </section>
-
-  <div id="root"></div>
-
-  <section class="esp" id="esp32">
-    <div>
-      <p class="mono small">ESP32 · DETAILED PROFILE</p>
-      <h2>The chip behind<br>the numbers.</h2>
-      <p class="lead">The ESP32 model uses datasheet-typical figures. Real boards vary with module revision, supply, firmware and antenna, so validate by measurement.</p>
-      <dl class="spec">
-        <% esp32.specs.forEach(function (s) { %><div><dt class="mono"><%= s[0] %></dt><dd><%= s[1] %></dd></div><% }) %>
+      <p class="eyebrow mono">JOULELAB · ENERGY MEASUREMENT</p>
+      <h1>JouleLab</h1>
+      <p class="sub">Per-module energy measurement for embedded boards. INA219 current sensing on an STM32 NUCLEO-F446RE; target: ESP32.</p>
+      <dl class="facts">
+        <div><dt>SENSOR</dt><dd>INA219, high-side shunt, I²C · 0.1 mA resolution · 532 µs averaging</dd></div>
+        <div><dt>MEASUREMENT MCU</dt><dd>STM32 NUCLEO-F446RE · binary packets over ST-LINK USB serial</dd></div>
+        <div><dt>SAMPLE RATE</dt><dd class="mono">500 Hz (team firmware) · 1.88 kHz (profiler.ino)</dd></div>
+        <div><dt>PHASE TIMING</dt><dd>Firmware markers (JL_FUNCTION_START/END) or GPIO edges on A0/A1</dd></div>
+        <div><dt>SEPARATION</dt><dd>Spectrogram + NMF on one current trace</dd></div>
       </dl>
-      <div class="cta"><a class="wsl mono" href="/workspace">Check my ESP32 code ↗</a><a class="wsl mono" href="#lab">Simulate ESP32 ↑</a></div>
+      <div class="cta"><a class="btn-p" href="#live">Live hardware</a><a class="btn-s" href="#sim">Simulator</a><a class="btn-s" href="/workspace">Workspace</a></div>
     </div>
-    <div class="modes" data-tilt>
-      <p class="mono small">CURRENT BY POWER MODE · LOG SCALE</p>
-      <% esp32.modes.forEach(function (m) { %><div class="mode"><span><%= m[0] %></span><div class="b"><i style="--w:<%= (Math.log10(m[2]) / Math.log10(300000) * 100).toFixed(1) %>%"></i></div><b class="mono"><%= m[1] %></b></div><% }) %>
-      <p class="tip mono"><%= esp32.tip %></p>
-    </div>
+    <figure class="fig">
+      <div class="scope">
+        <svg viewBox="0 0 600 220" class="chart" role="img" aria-label="Modelled ESP32 current over the first second of one cycle">
+          <g stroke="#1f2421"><line x1="48" x2="590" y1="194" y2="194"/><line x1="48" x2="590" y1="148.5" y2="148.5"/><line x1="48" x2="590" y1="103" y2="103"/><line x1="48" x2="590" y1="57.5" y2="57.5"/><line x1="48" x2="590" y1="12" y2="12"/></g>
+          <g class="tick" text-anchor="end"><text x="42" y="200">0</text><text x="42" y="154">50</text><text x="42" y="109">100</text><text x="42" y="63">150</text><text x="42" y="18">200</text></g>
+          <g class="tick" text-anchor="middle"><text x="48" y="216">0</text><text x="183.5" y="216">0.25</text><text x="319" y="216">0.50</text><text x="454.5" y="216">0.75</text><text x="575" y="216">1.00 s</text></g>
+          <text x="54" y="28" class="tick">mA</text>
+          <polyline points="48.0,193.9 58.8,193.9 58.8,172.2 102.2,172.2 102.2,148.5 264.8,148.5 264.8,27.4 285.1,52.4 305.5,27.4 325.8,52.4 346.1,27.4 366.4,52.4 386.8,27.4 407.1,52.4 427.4,44.0 427.4,193.9 590.0,193.9" fill="none" stroke="#e5a50a" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <figcaption class="mono small"><span>FIG. 1 · SIM · ESP32 standard cycle, first 1.0 s of 10 s</span><span>sense → process → Wi-Fi TX → sleep</span></figcaption>
+      <table class="mono">
+        <tr><th>VOLTAGE</th><td>3.30 V</td></tr>
+        <tr><th>CURRENT · AVG / PEAK</th><td>7.28 mA / 183.1 mA</td></tr>
+        <tr><th>POWER · AVG</th><td>24.02 mW</td></tr>
+        <tr><th>ENERGY / CYCLE</th><td>240.2 mJ</td></tr>
+        <tr><th>SOURCE</th><td>SIM model, not a measurement</td></tr>
+      </table>
+    </figure>
   </section>
 
-  <section class="how" id="how">
-    <div class="code-panel">
-      <p class="mono small">FIRMWARE PHASE MARKERS</p>
+  <section class="sec how" id="how">
+    <div class="sec-h"><h2><span class="n">1</span> Setup</h2></div>
+    <p class="lead">INA219 in the supply path of the board under test; the NUCLEO timestamps each sample and streams it to the backend.</p>
+    <div class="grid2">
+      <ol class="steps">
+        <li><span class="n">1.1</span><div><b>Measure the supply</b><p>INA219 in series with the target's supply: bus voltage and shunt current. Sample rate and shunt range set the shortest transient you can resolve.</p></div></li>
+        <li><span class="n">1.2</span><div><b>Label the phases</b><p>Wrap each firmware phase in begin/end markers, or toggle A0/A1, so every sample maps to the code that drew it.</p></div></li>
+        <li><span class="n">1.3</span><div><b>Re-measure after each change</b><p>Keep board, cycle interval and battery assumptions fixed so before/after numbers are comparable.</p></div></li>
+        <li><span class="n">1.4</span><div><b>Replace modelled phases</b><p>Run separation on recorded sessions or imported logs; the simulator is only a reference.</p></div></li>
+      </ol>
+      <div class="code-panel scope">
 <pre class="mono">EB_BEGIN("sensing");
 read_sensor();
 EB_END("sensing");
 
-// Link timestamps to
-// measured supply current.</pre>
-      <div class="ina"><span class="mono">INA219</span></div>
-      <p class="mono from">From electrons to evidence.</p>
-    </div>
-    <div class="how-copy">
-      <h2>A clear path<br>to real hardware.</h2>
-      <p class="lead">Designed around INA219 measurements and firmware phase labels. Start in the simulator, then bring your own captured data.</p>
-      <div class="acc">
-        <div class="item open"><button><span class="mono n">01</span>Measure the supply<i>×</i></button><p>An INA219 placed in the supply path measures bus voltage and shunt-derived current. Capture samples with timestamps on your controller or host. Sampling rate and shunt range limit which transients you can resolve.</p></div>
-        <div class="item"><button><span class="mono n">02</span>Label the phase<i>+</i></button><p>Wrap each firmware phase with begin and end markers so every current sample maps to the code that caused it.</p></div>
-        <div class="item"><button><span class="mono n">03</span>Verify the improvement<i>+</i></button><p>Re-measure after each change. Keep board, interval and battery assumptions identical so the comparison holds.</p></div>
-        <div class="item"><button><span class="mono n">04</span>Connect the next layer<i>+</i></button><p>Feed measured traces into the same views to replace modelled phases with real ones.</p></div>
+<span class="cm">// markers are timestamped and matched
+// against the measured supply current</span></pre>
       </div>
     </div>
   </section>
 
-  <section class="take">
-    <div><p class="mono small">KNOW YOUR ENERGY BUDGET</p><h2>Take the evidence<br>with you.</h2>
-      <p class="lead">Your current trace, phase breakdown and battery assumptions in one report.</p></div>
-    <a class="dl" data-tilt id="report" href="/api/report"><p class="mono small">DOWNLOAD</p><h3>Energy report</h3><b>↓</b><span class="mono">.TXT / current run</span></a>
+  <div id="root"></div>
+
+  <section class="sec esp" id="esp32">
+    <div class="sec-h"><h2><span class="n">4</span> Reference: ESP32</h2></div>
+    <p class="lead">Datasheet-typical figures. Module revision, supply, firmware and antenna change real values; measure your board.</p>
+    <div class="grid2">
+      <div>
+        <dl class="spec">
+          <% esp32.specs.forEach(function (s) { %><div><dt class="mono"><%= s[0].toUpperCase() %></dt><dd><%= s[1] %></dd></div><% }) %>
+        </dl>
+        <div class="btns"><a class="btn-s" href="/workspace">Check ESP32 sketch</a><a class="btn-s" href="#sim">Simulate ESP32</a></div>
+      </div>
+      <div class="modes">
+        <p class="mono small">CURRENT BY POWER MODE · LOG SCALE</p>
+        <% esp32.modes.forEach(function (m) { %><div class="mode"><span><%= m[0] %></span><div class="b"><i style="--w:<%= (Math.log10(m[2]) / Math.log10(300000) * 100).toFixed(1) %>%"></i></div><b class="mono"><%= m[1] %></b></div><% }) %>
+        <p class="tip mono"><%= esp32.tip %></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec take">
+    <div class="row">
+      <div><div class="sec-h"><h2><span class="n">5</span> Report</h2></div>
+        <p class="lead">Text report of the current simulator settings: phases, average and peak current, cycle energy, projected runtime.</p></div>
+      <a class="btn-s dl mono" id="report" href="/api/report">Download report (.txt)</a>
+    </div>
   </section>
 
   <script src="/vendor/react/react.production.min.js"></script>
   <script src="/vendor/react-dom/react-dom.production.min.js"></script>
   <script>window.BOARDS = <%- JSON.stringify(boards) %>;</script>
-  <script src="/js/fx.js"></script>
-  <script src="/js/main.js"></script>
   <script src="/js/app.js"></script><!-- compiled from src/app.jsx by `npm run build` -->
 </body>
 </html>

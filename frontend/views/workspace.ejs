@@ -4,29 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Workspace · JouleLab</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <%- include('nav') %>
   <section class="ws">
-    <p class="eyebrow mono">WORKSPACE · CODE OPTIMISATION CHECK</p>
-    <h1>Paste firmware.<br><em>Find the waste.</em></h1>
-    <p class="lead">A rule-based check for ESP32 Arduino sketches. It flags patterns that keep the CPU or radio awake and projects the runtime effect with the same model as the lab.</p>
+    <p class="eyebrow mono">WORKSPACE · PLATFORMIO + STATIC CHECK</p>
+    <h1>Workspace: build, flash, measure</h1>
+    <p class="lead">Rule-based checks for ESP32 Arduino sketches: CPU/radio awake patterns and their projected runtime effect. Build, upload and debug go through PlatformIO on the backend; measured results are in Lab → Live hardware.</p>
     <div class="devbar" id="devbar">
-      <p class="mono small devtitle">JOULELAB WORKSPACE · BUILD · FLASH · DEBUG</p>
+      <p class="mono small devtitle">1 BUILD · FLASH · DEBUG</p>
       <div class="devrow">
         <label><span class="mono small">BOARD</span><select id="devboard"><option>Loading…</option></select></label>
         <label><span class="mono small">SERIAL PORT</span><select id="devport"><option value="">Loading…</option></select></label>
-        <button class="chip2 devicon" id="devrefresh" title="Refresh serial ports">↻</button>
+        <button class="chip2 devicon" id="devrefresh" title="Refresh serial ports">Refresh</button>
         <div class="devbtns">
-          <button class="devbtn" id="verify" title="Compile (pio run)">✓ Verify</button>
-          <button class="devbtn" id="upload" title="Compile and flash (pio run -t upload)">→ Upload</button>
-          <button class="devbtn run" id="run" title="Build, flash, then open the terminal with the board's output">▶ Run</button>
-          <button class="devbtn" id="debug" title="Start a GDB session (pio debug)">⏯ Debug</button>
-          <button class="devbtn stop" id="stop" disabled title="Stop the running build, upload or debug session">■ Stop</button>
+          <button class="devbtn" id="verify" title="Compile (pio run)">Verify</button>
+          <button class="devbtn" id="upload" title="Compile and flash (pio run -t upload)">Upload</button>
+          <button class="devbtn run" id="run" title="Build, flash, then open the terminal with the board's output">Run</button>
+          <button class="devbtn" id="debug" title="Start a GDB session (pio debug)">Debug</button>
+          <button class="devbtn stop" id="stop" disabled title="Stop the running build, upload or debug session">Stop</button>
           <select id="monbaud" class="mono small" title="Baud rate (must match Serial.begin in your code)"><option>115200</option><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>230400</option><option>460800</option><option>921600</option></select>
           <button class="chip2" id="monitor" title="Open the board's serial port through JouleLab's shared serial connection">Serial monitor</button>
         </div>
@@ -35,42 +32,30 @@
         <span class="devlinks"><button class="linkbtn" id="openproj">Open board project in editor</button><button class="linkbtn" id="resetproj">Reset board project</button></span></div>
     </div>
     <div class="wsbar">
-      <button class="runbtn" id="analyze">Analyze <span>▶</span></button>
-      <button class="chip2" id="ai">AI suggestions ✦</button>
+      <span class="mono small">2 STATIC CHECK</span>
+      <button class="runbtn" id="analyze">Analyze</button>
       <button class="chip2" id="sample">Load sample</button>
-      <button class="chip2" id="apply" disabled>Accept all changes</button>
+      <button class="chip2" id="apply" disabled>Apply suggested fixes</button>
       <button class="chip2" id="undo" disabled>Undo</button>
       <button class="chip2" id="copy">Copy</button>
       <button class="chip2" id="download">Download .ino</button>
       <button class="chip2" id="clear">Clear</button>
     </div>
     <div class="wsbar tune mono">
-      <label>Energy model <select id="board"><% boards.forEach(b => { %><option><%= b %></option><% }) %></select></label>
+      <label>SIM model <select id="board"><% boards.forEach(b => { %><option><%= b %></option><% }) %></select></label>
       <label>Cycle <input id="interval" type="number" min="2" max="60" value="10"> s</label>
       <label>Battery <input id="capacity" type="number" min="100" max="10000" step="100" value="2000"> mAh</label>
       <span id="status" class="small"></span>
     </div>
     <div class="wsgrid">
-      <div class="ed"><div class="gut mono" id="gut">1</div><div class="ed-body" id="edbody"><div class="ed-hl" id="edhl" aria-hidden="true"></div><textarea id="code" class="mono" spellcheck="false" wrap="off" placeholder="// Paste your ESP32 sketch here, or press “Load sample”"></textarea><div class="peek" id="peek" hidden></div></div></div>
+      <div class="ed"><div class="gut mono" id="gut">1</div><textarea id="code" class="mono" spellcheck="false" placeholder="// paste an ESP32 Arduino sketch, or press Load sample"></textarea></div>
       <div class="res">
-        <div class="score"><b id="score">–</b><div><p class="mono small">OPTIMISATION SCORE</p><p id="verdict">Run an analysis to see results.</p></div></div>
-        <div class="rt"><div><p class="mono small">RUNTIME NOW</p><b id="dnow">–</b></div><div><p class="mono small">IF ALL FIXED</p><b id="dafter">–</b></div></div>
+        <div class="score"><b id="score">–</b><div><p class="mono small">RULE SCORE / 100</p><p id="verdict">No analysis yet.</p></div></div>
+        <div class="rt"><div><p class="mono small">SIM · RUNTIME NOW</p><b id="dnow">–</b></div><div><p class="mono small">SIM · IF ALL FIXED</p><b id="dafter">–</b></div></div>
         <div id="finds"></div>
-        <div id="ai-out"></div>
-        <p class="mono small foot2">Static pattern check, not a profiler. Review every fix, then measure on hardware.</p>
+        <p class="mono small foot2">Static pattern check, not a profiler. Runtime figures come from the simulator model. Review every fix, then measure on hardware.</p>
+        <div class="ai-block"><span class="mono small">OPTIONAL · LLM</span><button class="chip2" id="ai">Code suggestions (LLM, unverified)</button><div id="ai-out"></div></div>
       </div>
-    </div>
-    <div class="ba" id="ba">
-      <div class="ba-head"><div><p class="mono small">BEFORE / AFTER ON HARDWARE</p>
-        <p class="ba-lead">Record a session in Lab → Live hardware with the original code, accept the changes above, re-flash, record another session. Compare them here. A second recording of the original code shows the run-to-run noise.</p></div></div>
-      <div class="ba-pick mono">
-        <label>Before <select id="ba-a"></select></label>
-        <label>After <select id="ba-b"></select></label>
-        <label>Repeat of before (optional) <select id="ba-r"></select></label>
-        <button class="runbtn" id="ba-run">Compare <span>▶</span></button>
-        <button class="chip2" id="ba-refresh" type="button">Refresh list</button>
-      </div>
-      <div id="ba-out" class="ba-out"><p class="mono small">No comparison yet.</p></div>
     </div>
     <div class="console" id="console">
       <div class="ctabs">
@@ -81,16 +66,16 @@
         <label class="mono small"><input type="checkbox" id="autoscroll" checked> Autoscroll</label>
         <button class="chip2" id="conclear">Clear</button>
       </div>
-      <pre class="con mono" id="con-out">Compiler output will appear here.</pre>
-      <pre class="con mono" id="con-mon" hidden>Serial monitor will display real board output.</pre>
+      <pre class="con mono" id="con-out">jl> no build yet</pre>
+      <pre class="con mono" id="con-mon" hidden>jl> serial monitor closed</pre>
       <div class="logbar mono" id="logbar" hidden>
         <span>LOG PORT</span><select id="logportsel"></select>
         <select id="logbaud"><option>115200</option><option>9600</option><option>57600</option><option>230400</option><option>460800</option><option>921600</option></select>
         <button class="chip2" id="logconnect" type="button">Open log port</button><span id="logstate"></span>
       </div>
-      <pre class="con mono" id="con-log" hidden>A second board's text (e.g. ESP32 Serial.println) appears here, while the main connection keeps measuring.</pre>
+      <pre class="con mono" id="con-log" hidden>jl> log port closed · text from a second board (e.g. ESP32 Serial.println) while the main connection measures</pre>
       <form class="gdb mono" id="termform" hidden>
-        <span>&gt;</span><input id="termcmd" autocomplete="off" spellcheck="false" placeholder="Type to the board (sent through the serial port)">
+        <span>&gt;</span><input id="termcmd" autocomplete="off" spellcheck="false" placeholder="send to board over serial">
         <select id="termeol" title="Line ending"><option value="\n">LF</option><option value="\r\n">CR+LF</option><option value="\r">CR</option><option value="">none</option></select>
         <button class="chip2" type="submit">Send</button>
       </form>
@@ -101,7 +86,6 @@
       </form>
     </div>
   </section>
-  <script src="/js/fx.js"></script>
   <script src="/js/workspace.js"></script>
 </body>
 </html>
