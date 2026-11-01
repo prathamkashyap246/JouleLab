@@ -200,7 +200,7 @@ at that rate.
 
 In the virtual room you can also **describe the circuit in plain English** ("two red LEDs with 220 ohm,
 one PWM at 37 Hz and one at 173 Hz, plus BLE every 100 ms"). `POST /api/analysis/describe` turns the
-description into the module list (OpenAI if `OPENAI_API_KEY`/`OPENAI_MODEL` are set, otherwise an
+description into the module list (Gemini if `GEMINI_API_KEY`/`GEMINI_MODEL` are set, otherwise an
 offline rule parser) and lists every assumption it made; the user checks the table. The AI never
 writes samples: `POST /api/analysis/virtual-log` runs the physics simulator and returns a log in the
 `profiler.ino` format (`#SIM`, `S,t_us,raw`, `E,t_us,state`), which can be uploaded back for separation.
@@ -243,6 +243,47 @@ for the `pio` command, so they check JouleLab's process handling, not the compil
 your PC's C compiler and checks it against the Python decoder byte for byte (skipped if no C
 compiler is installed).
 
+## 8. AI suggestions (Gemini) and ESP32 PlatformIO setup
+
+**Gemini.** The backend uses Google Gemini for two things: power-optimisation suggestions
+(`POST /api/optimizer/suggest`, in `ai_optimizer.py`) and "describe your circuit" in the virtual room
+(`POST /api/analysis/describe`, in `circuit_ai.py`). The key never reaches the browser.
+
+1. Get a key at https://aistudio.google.com and put it in `backend/.env` (copy `backend/.env.example` if
+   the file is missing):
+
+   ```
+   GEMINI_API_KEY=your-key
+   GEMINI_MODEL=a-current-model-name
+   AI_RETRY_ON_INVALID=true
+   ```
+2. `pip install -r backend/requirements.txt` (installs `google-genai`; the OpenAI package is gone).
+3. Restart the backend. With no key, suggestions return "AI is not configured" and "describe your
+   circuit" falls back to the offline rule parser, so nothing breaks.
+
+The optimizer sends numbered source plus your measured per-function energy to Gemini, together with
+the knowledge file `backend/app/services/knowledge/esp32_ble_power.md` (edit it to teach the AI new
+rules). Besides line-numbered findings it can return a full `optimized_code` rewrite, which is checked
+server-side first (balanced brackets, `setup()`/`loop()` kept, BLE UUIDs unchanged, one retry if invalid)
+and withheld if it still fails. The report is advice, not a measurement: press **Verify**, flash it and
+re-measure before believing any saving.
+
+**ESP32 PlatformIO environment** (`firmware/platformio_templates/esp32dev/platformio.ini`):
+
+| Setting | Why |
+|---|---|
+| `lib_deps = adafruit/Adafruit INA219` | INA219 driver for sketches that read it directly |
+| `board_build.partitions = huge_app.csv` | BLE plus Wi-Fi sketches overflow the default app partition |
+| `upload_speed = 115200` | slow but reliable on cheap USB-serial chips |
+
+The first ESP32 build downloads the toolchain (hundreds of MB), so `DEV_JOB_TIMEOUT_S` is 3600.
+`platformio.ini` is copied from the template into `backend/data/projects/esp32dev/` every time the
+board is used, so edits to the template take effect without a reset.
+
+**Security.** `backend/.env` holds your real key. It is listed in `.gitignore` and so is `*.zip`,
+so do not commit it, and do not share this folder or zip as-is. `DEV_ALLOW_REMOTE` stays `false`:
+build, upload and debug run programs on this computer, so only requests from this machine are accepted.
+
 ## API
 
 | Method | Path | |
@@ -257,7 +298,7 @@ compiler is installed).
 | POST | `/api/sessions/start` | `{"name": "...", "notes": "..."}` (board must be streaming) |
 | POST | `/api/sessions/stop` | |
 | GET | `/api/sessions` | list; `/api/sessions/{id}` for one |
-| POST | `/api/optimizer/suggest` | AI suggestions (needs `OPENAI_API_KEY`); reports are saved |
+| POST | `/api/optimizer/suggest` | AI suggestions (needs `GEMINI_API_KEY` and `GEMINI_MODEL`); reports are saved |
 | GET | `/api/development/boards` | boards + PlatformIO status |
 | GET | `/api/development/ports` | serial ports + the port the shared serial manager holds |
 | GET/PUT | `/api/development/project/{board}` | read / save the board project's main file; `POST …/reset` restores it |

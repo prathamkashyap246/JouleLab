@@ -6,7 +6,7 @@ pydantic>=2.12
 python-dotenv>=1.0
 pyserial>=3.5
 numpy>=2.3.3
-openai>=1.66          # only used when OPENAI_API_KEY is set
+google-genai>=1.0     # only used when GEMINI_API_KEY is set
 platformio>=6.1       # Workspace Verify / Upload / Debug (downloads board toolchains on first build)
 # tests
 pytest>=8

@@ -9,5 +9,5 @@ os.environ["DATABASE_PATH"] = os.path.join(_tmp, "test.db")
 os.environ["PROXY_KEY_FILE"] = os.path.join(_tmp, "proxy.key")
 os.environ["ALLOW_TEST_SOURCES"] = "false"
 os.environ["HARDWARE_MODE"] = "manual"
-os.environ["OPENAI_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

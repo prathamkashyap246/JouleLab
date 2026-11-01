@@ -33,6 +33,9 @@ class OptimizeRequest(BaseModel):
 
 class Suggestion(BaseModel):
     function_name: str
+    line_start: int = Field(description="First affected line (1-based, as numbered in the input); 0 if unknown")
+    line_end: int = Field(description="Last affected line; 0 if unknown")
+    phase: str = Field(description="advertising | connection | transmit | idle | sensor | other")
     observed_measurement: str
     potential_issue: str
     recommendation: str
@@ -44,5 +47,6 @@ class Suggestion(BaseModel):
 class SuggestionReport(BaseModel):
     summary: str
     suggestions: list[Suggestion]
+    optimized_code: str = Field(description="The COMPLETE rewritten sketch with the fixes applied, or empty if none")
     validation_steps: list[str]
     caveats: list[str]

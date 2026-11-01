@@ -75,8 +75,9 @@ class Settings:
 
     cors_origins: list[str] = field(default_factory=lambda: _csv(
         "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"))
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = os.getenv("OPENAI_MODEL", "")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "")
+    ai_retry_on_invalid: bool = _bool("AI_RETRY_ON_INVALID", True)
     max_source_chars: int = int(os.getenv("MAX_SOURCE_CHARS", "30000"))
 
     def __post_init__(self) -> None:

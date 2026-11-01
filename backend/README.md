@@ -15,7 +15,7 @@ app/
   services/
     energy.py                  power, trapezoidal energy, function windows
     measurement_store.py       live sample buffer + WebSocket broadcaster
-    ai_optimizer.py            optional OpenAI suggestions
+    ai_optimizer.py            optional Gemini suggestions + optimized code
     serial_monitor.py          monitor text from the shared serial connection (never opens a port)
     platformio_manager.py      pio command, supported boards, per-board projects (data/projects)
     build_manager.py           runs PlatformIO jobs, streams output, Stop (kills the process tree)

@@ -57,7 +57,7 @@ def describe_to_modules(text: str) -> dict:
     text = (text or "").strip()
     if not text:
         raise ValueError("Describe your circuit first.")
-    if settings.openai_api_key and settings.openai_model:
+    if settings.gemini_api_key and settings.gemini_model:
         try:
             spec = _ai(text)
             return {"engine": "ai", **_clean(spec)}
@@ -66,18 +66,29 @@ def describe_to_modules(text: str) -> dict:
             out["notes"].insert(0, f"AI unavailable ({type(e).__name__}); used the rule-based parser.")
             return {"engine": "rules", **out}
     out = _rules(text)
-    out["notes"].insert(0, "No OPENAI_API_KEY set: used the offline rule-based parser.")
+    out["notes"].insert(0, "No GEMINI_API_KEY set: used the offline rule-based parser.")
     return {"engine": "rules", **out}
 
 
 def _ai(text: str) -> CircuitSpec:
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.openai_api_key)
-    r = client.responses.parse(model=settings.openai_model, instructions=SYSTEM_PROMPT,
-                               input=json.dumps({"description": text[:4000]}), text_format=CircuitSpec)
-    if r.output_parsed is None:
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    r = client.models.generate_content(
+        model=settings.gemini_model,
+        contents=json.dumps({"description": text[:4000]}),
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            response_schema=CircuitSpec,
+            temperature=0.2,
+        ),
+    )
+    spec = r.parsed if r.parsed is not None else CircuitSpec.model_validate_json(r.text)
+    if spec is None:
         raise RuntimeError("no structured output")
-    return r.output_parsed
+    return spec
 
 
 def _clean(spec: CircuitSpec) -> dict:
