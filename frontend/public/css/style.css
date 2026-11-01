@@ -1,18 +1,22 @@
 /* JouleLab · bench-instrument theme. System fonts only; no shadows, gradients or decorative motion. */
 :root{
-  --bg:#f7f7f4;      /* page */
-  --panel:#ffffff;   /* cards, tables */
-  --ink:#111111;     /* text */
-  --mute:#5c5f5d;    /* secondary text */
-  --line:#cfcfca;    /* 1px borders */
-  --scope:#0d0f0e;   /* plot / console background */
-  --scope-grid:#1f2421;
-  --scope-ink:#d6d8d4; /* text on --scope */
-  --scope-mute:#8a8f8c;
-  --trace:#e5a50a;   /* the one signal colour */
-  --ok:#2e7d32; --err:#c62828; --warn:#b26a00;
-  --acc:#111111;     /* primary buttons are black */
-  --bg2:#efefea;     /* legacy name: subtle fill */
+  --bg:#f5f2eb;      /* page: warm white */
+  --panel:#ffffff;   /* cards, tables, plots */
+  --ink:#1c1a17;     /* text */
+  --mute:#7d7266;    /* secondary text */
+  --line:#e2dbcf;    /* 1px borders, beige */
+  --frame:#1c1a17;   /* strong outline around key panels */
+  --label:#a4572c;   /* small uppercase labels (rust) */
+  --scope:#ffffff;   /* plot / console / editor background */
+  --scope-grid:#eee8dd;
+  --scope-ink:#1c1a17;
+  --scope-mute:#8c8172;
+  --trace:#c0561c;   /* primary signal: burnt orange */
+  --trace2:#2f6f6a;  /* secondary signal: teal */
+  --ok:#2f7d4f; --err:#c0392b; --warn:#b26a00;
+  --acc:#c0561c;     /* primary buttons: orange */
+  --acc-dark:#9c4413;
+  --bg2:#f3eee5;     /* subtle fill */
   --radius:2px;
   --sans: Arial, "Helvetica Neue", Helvetica, sans-serif;
   --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
@@ -389,3 +393,36 @@ aside label{display:flex;justify-content:space-between;font-size:13px;margin-top
 .ba-sub{margin-top:10px}
 @media(max-width:900px){.ba-out{overflow-x:auto}.peek{left:4px;right:4px}}
 .pk-ctx{background:#fff;color:#57606a}
+
+
+/* ======================= white + orange palette (overrides) ======================= */
+body{background-color:var(--bg);background-image:linear-gradient(#ece6da 1px,transparent 1px),linear-gradient(90deg,#ece6da 1px,transparent 1px);background-size:24px 24px}
+/* headings: bold monospace, dark */
+h1,h2,h3,.sec-h,.logo,.big{font-family:var(--mono);font-weight:700;color:var(--ink);letter-spacing:-.01em!important}
+.small,.eyebrow,.tag,label.small,.mono.small,th{color:var(--label)}
+/* panels: white with a strong dark frame, like an instrument readout */
+.card,.panel,.res,.devbar,.vr,.ba,.modes,.hw-grid>*,.fig table{background:var(--panel)}
+.scope,.ed,.console{background-color:var(--scope);border:1px solid var(--frame)}
+/* buttons: orange primary, white secondary */
+.runbtn,.devbtn,.btn-p{background:var(--acc);border-color:var(--acc);color:#fff}
+.runbtn:hover:not(:disabled),.devbtn:hover:not(:disabled),.btn-p:hover{background:var(--acc-dark);border-color:var(--acc-dark)}
+.devbtn.run{background:var(--ink);border-color:var(--ink)}
+.chip2:hover:not(:disabled),.ghost:hover,.btn-s:hover,.wsl:hover{border-color:var(--acc);background:#fdf3ec}
+.chip2.on,#monitor.on,.tabs .on,.tabs button.on{border-color:var(--acc)}
+.chip2.on,#monitor.on{background:var(--acc);color:#fff}
+.filebtn{border-color:var(--acc);color:var(--acc)}
+:focus-visible{outline-color:var(--acc)}
+a:hover{color:var(--acc)}
+/* code editor and console on white */
+.gut{background:#faf7f1;color:#a39888;border-right:1px solid var(--line)}
+.gut .hot{color:var(--acc)}
+.ed textarea{color:var(--ink);caret-color:var(--acc)}
+.console .chip2{color:var(--ink);border-color:var(--line)}
+.console .chip2:hover:not(:disabled){background:var(--bg2);border-color:var(--acc)}
+.ctabs .js-succeeded{color:var(--ok)!important}.ctabs .js-failed,.ctabs .js-timeout{color:var(--err)!important}
+.con .c-err{color:var(--err)}.con .c-warn{color:var(--warn)}.con .c-ok{color:var(--ok)}
+.gdb input,#termform select,.logbar select{background:#fff;border-color:var(--line);color:var(--ink)}
+.hl-del{background:rgba(255,129,130,.25);border-left-color:#e5534b}
+.hl-del.on{background:rgba(255,129,130,.4)}
+.gut .chg{color:#cf222e}
+.ba-verdict{background:#fdf3ec}

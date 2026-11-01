@@ -1,8 +1,8 @@
 const { useState, useEffect, useRef } = React;
 const f = (n, d = 2) => Number(n).toFixed(d);
 
-const COL = ['#4fa3d9', '#9b7fd1', '#d9534f', '#8a8f8c']; // Sensing, Processing, Transmit, Sleep
-const TRACE = '#e5a50a', GRID = '#2b312d', AXIS = '#8a8f8c', SCOPE_INK = '#d6d8d4';
+const COL = ['#2f6f6a', '#d9963a', '#c0561c', '#b9ae9f']; // Sensing, Processing, Transmit, Sleep
+const TRACE = '#c0561c', GRID = '#eee8dd', AXIS = '#8c8172', SCOPE_INK = '#1c1a17';
 const USABLE = 0.76;
 
 function Chart({ sim, base, showBase, pt }) {
@@ -37,9 +37,9 @@ function Chart({ sim, base, showBase, pt }) {
         <text x={L - 14} y={y(yMax * k) + 5} textAnchor="end" className="tick">{Math.round(yMax * k)}</text>
         <text x={x(sim.interval * k)} y={H - 8} textAnchor="middle" className="tick">{f(sim.interval * k, 1)}s</text></g>)}
       <polygon points={`${x(0)},${y(0)} ${line}`} fill={TRACE} opacity=".08" />
-      {showBase && <polyline points={trace(base)} fill="none" stroke="#cccccc" strokeOpacity=".6" strokeWidth="2" strokeDasharray="8 7" />}
+      {showBase && <polyline points={trace(base)} fill="none" stroke="#9c9488" strokeOpacity=".6" strokeWidth="2" strokeDasharray="8 7" />}
       <polyline points={line} fill="none" stroke={TRACE} strokeWidth="2.5" strokeLinejoin="round" />
-      {pt != null && <line x1={x(pt)} x2={x(pt)} y1={T} y2={H - B} stroke="#e8e8e8" strokeWidth="2" />}
+      {pt != null && <line x1={x(pt)} x2={x(pt)} y1={T} y2={H - B} stroke="#2f6f6a" strokeWidth="2" />}
       {hv && <g>
         <line x1={x(hv.t)} x2={x(hv.t)} y1={T} y2={H - B} stroke={AXIS} strokeDasharray="4 4" />
         <circle cx={x(hv.t)} cy={y(hv.ph.ma)} r="6" fill={TRACE} />
@@ -243,12 +243,12 @@ function LiveHardware({ capacity }) {
 }
 
 // ---- Module separation: spectrogram + NMF on one current trace (backend /api/analysis/separate) ----
-const SEP_COL = ['#e5a50a', '#4fa3d9', '#d9534f', '#9b7fd1', '#5cb85c', '#cccccc', '#e07b39', '#5bc0be'];
+const SEP_COL = ['#c0561c', '#2f6f6a', '#d9963a', '#6b4c9a', '#4a7f3a', '#8c8172', '#a8322d', '#3d7ea6'];
 const sepName = c => c.module || 'Module ' + (c.id + 1);
 const sepLabel = (c, sc) => !c.low_freq ? sepName(c) : sc && sc.on_off_accuracy > 0.8 ? sepName(c) + ' (low-freq)' : sc ? 'Step / switching' : 'Low-frequency / step';
 
-function heatColor(v) { // v in 0..1 → black → dark amber → amber → near-white (inferno-like)
-  const stops = [[13, 15, 14], [40, 18, 6], [110, 52, 6], [200, 128, 10], [240, 196, 70], [252, 246, 228]];
+function heatColor(v) { // v in 0..1 → white → peach → orange → dark brown
+  const stops = [[255, 255, 255], [255, 251, 246], [251, 228, 204], [236, 160, 100], [192, 86, 28], [96, 38, 10]];
   const x = Math.min(Math.max(v, 0), 1) * (stops.length - 1), i = Math.min(Math.floor(x), stops.length - 2), t = x - i;
   return stops[i].map((a, k) => Math.round(a + (stops[i + 1][k] - a) * t));
 }
@@ -298,12 +298,12 @@ function SepTimeline({ res }) {
     <text x={L - 12} y={T + 12} textAnchor="end" className="tick">{f(hi, 0)}</text>
     <text x={L - 12} y={T + TR} textAnchor="end" className="tick">{f(lo, 0)}</text>
     <text x={L + 8} y={T + 14} className="tick">total mA</text>
-    <polyline points={pts} fill="none" stroke="#e8e8e8" strokeWidth="1.4" opacity=".75" />
+    <polyline points={pts} fill="none" stroke="#2f6f6a" strokeWidth="1.4" opacity=".75" />
     {comps.map((c, i) => {
       const y0 = T + TR + 24 + i * laneH, col = SEP_COL[i % SEP_COL.length], segs = []; let s = null;
       c.on.forEach((v, j) => { if (v && s === null) s = j; if ((!v || j === c.on.length - 1) && s !== null) { segs.push([s, v ? j : j - 1]); s = null; } });
       return <g key={c.id}>
-        <rect x={L} y={y0} width={W - L - R} height={laneH - 10} fill="rgba(255,255,255,.04)" />
+        <rect x={L} y={y0} width={W - L - R} height={laneH - 10} fill="rgba(0,0,0,.035)" />
         {segs.map(([a, b], k) => <rect key={k} x={x(Math.max(res.times[a] - dt / 2, 0))} y={y0} width={Math.max(x(res.times[b] + dt / 2) - x(res.times[a] - dt / 2), 2)} height={laneH - 10} fill={col} opacity=".8" />)}
         <text x={L - 12} y={y0 + laneH / 2} textAnchor="end" className="tick" style={{ fill: col }}>{sepName(c).replace('Module ', 'M')}</text>
       </g>;
@@ -318,9 +318,9 @@ function KCurve({ curve, k }) {
   const W = 520, H = 220, L = 50, R = 16, T = 14, B = 34, hi = Math.max(...vals), lo = Math.min(...vals);
   const x = n => L + ((n - ks[0]) / (ks[ks.length - 1] - ks[0])) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo + 1e-9)) * (H - T - B);
   return <svg viewBox={`0 0 ${W} ${H}`} className="chart">
-    <line x1={x(k)} x2={x(k)} y1={T} y2={H - B} stroke="#e8e8e8" strokeDasharray="5 5" />
+    <line x1={x(k)} x2={x(k)} y1={T} y2={H - B} stroke="#2f6f6a" strokeDasharray="5 5" />
     <polyline points={ks.map(n => `${x(n)},${y(curve[n])}`).join(' ')} fill="none" stroke={TRACE} strokeWidth="2" />
-    {ks.map(n => <g key={n}><circle cx={x(n)} cy={y(curve[n])} r={n === k ? 6 : 3.5} fill={n === k ? '#e8e8e8' : TRACE} />
+    {ks.map(n => <g key={n}><circle cx={x(n)} cy={y(curve[n])} r={n === k ? 6 : 3.5} fill={n === k ? '#2f6f6a' : TRACE} />
       <text x={x(n)} y={H - 10} textAnchor="middle" className="tick">{n}</text></g>)}
   </svg>;
 }
@@ -432,7 +432,7 @@ function Separation({ capacity }) {
 
     {res && <>
       <div className="hw-top">
-        {res.simulated ? <span className="mono hw-test">SIM · SIMULATED DATA · NOT FROM HARDWARE</span> : <span className="mono hw-real">{res.source === 'live' ? 'REAL INA219 DATA' : 'IMPORTED LOG'}</span>}
+        {res.simulated ? <span className="mono hw-test">SIM · SIMULATED DATA · NOT FROM HARDWARE</span> : <span className="mono hw-real">{res.source === 'live' ? 'REAL INA219 DATA' : res.source === 'session' ? 'RECORDED SESSION · INA219' : 'IMPORTED LOG'}</span>}
         <span className="mono small">{f(res.duration_s, 1)} s · {f(res.fs_hz, 0)} Hz sampling · {res.samples.toLocaleString()} samples · Vbus {f(res.vbus_v, 2)} V</span>
       </div>
       <div className="stats four">
@@ -606,7 +606,7 @@ function App() {
         <thead><tr><th>Pattern</th><th>Avg power</th><th>Avg current</th><th>Relative</th><th>Runtime</th></tr></thead>
         <tbody>
           <tr><td>SIM · standard firmware (baseline)</td><td>{f(b.powerMw)} mW</td><td>{f(b.avgMa)} mA</td><td><div className="track"><i style={{ width: '100%', background: '#8a8f8c' }} /></div></td><td>{f(b.days, 1)} d</td></tr>
-          <tr><td>SIM · {pattern === 'optimized' ? 'optimized pattern' : 'standard firmware'} (current run)</td><td>{f(s.powerMw)} mW</td><td>{f(s.avgMa)} mA</td><td><div className="track"><i style={{ width: (s.powerMw / b.powerMw) * 100 + '%', background: '#111111' }} /></div></td><td>{f(s.days, 1)} d</td></tr>
+          <tr><td>SIM · {pattern === 'optimized' ? 'optimized pattern' : 'standard firmware'} (current run)</td><td>{f(s.powerMw)} mW</td><td>{f(s.avgMa)} mA</td><td><div className="track"><i style={{ width: (s.powerMw / b.powerMw) * 100 + '%', background: '#c0561c' }} /></div></td><td>{f(s.days, 1)} d</td></tr>
           <tr><td>Δ power</td><td>{saved > 0.05 ? '−' + f(saved, 1) : '0.0'} %</td><td /><td /><td>{saved > 0.05 ? '+' + f(s.days - b.days, 1) + ' d' : '–'}</td></tr>
         </tbody></table></div>
       <p className="foot">Runtime = capacity × 0.76 / average current. Modelled, not measured.</p>
