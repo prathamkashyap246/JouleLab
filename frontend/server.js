@@ -74,6 +74,69 @@ const RULES = [
   { id: 'serial', sev: 'low', w: 5, re: /\bSerial\.print/, t: 'Serial logging in firmware', d: 'UART output keeps peripherals busy. Gate it behind a debug flag in battery builds.' }
 ];
 
+// Proposed edits, VS Code style: each change replaces `del` lines starting at `line` with `after`.
+// `estimate` quotes datasheet-typical figures only; the real effect is measured on hardware.
+const indentOf = l => (l.match(/^\s*/) || [''])[0];
+const CHANGE_RULES = [
+  { id: 'cpu', sev: 'medium', title: 'CPU left at 240 MHz',
+    detail: 'Light work (GPIO, PWM, short delays, BLE advertising) runs fine at 80 MHz, the lowest setting that keeps Wi-Fi/BT working.',
+    estimate: 'ESP32 datasheet: modem-sleep at 240 MHz ≈ 30–68 mA; at 80 MHz ≈ 20–31 mA.',
+    behavior: 'Same behaviour; code runs about 3x slower, which only matters for heavy computation.',
+    when: code => /void\s+setup\s*\(\s*\)/.test(code) && !/setCpuFrequencyMhz/.test(code),
+    find: lines => lines.findIndex(l => /void\s+setup\s*\(\s*\)\s*\{/.test(l)),
+    make: l => [l, indentOf(l) + '  setCpuFrequencyMhz(80);  // was 240 MHz'] },
+  { id: 'delay', sev: 'high', title: 'Blocking delay() keeps the CPU awake',
+    detail: 'Core and radio stay powered for the whole wait. Deep sleep restarts setup() on wake, so keep state in RTC_DATA_ATTR variables.',
+    estimate: 'ESP32 datasheet: awake idle ≈ 20–68 mA; deep sleep with RTC timer ≈ 10 µA.',
+    behavior: 'Changes program flow: the board reboots after each sleep.',
+    re: /\bdelay\s*\(\s*(\d{4,})\s*\)\s*;?/,
+    make: l => [l.replace(/\bdelay\s*\(\s*(\d{4,})\s*\)\s*;?/, 'esp_sleep_enable_timer_wakeup($1 * 1000ULL); esp_deep_sleep_start();')] },
+  { id: 'adv', sev: 'medium', title: 'BLE advertising faster than needed',
+    detail: 'Each advertising event is a radio burst on three channels. Advertising every 1 s instead of every 100 ms sends ten times fewer bursts.',
+    estimate: 'Advertising energy scales roughly with 1 / interval.',
+    behavior: 'Phones take longer (up to ~1 s) to discover the device.',
+    re: /set(Min|Max)Interval\s*\(\s*(\d+)\s*\)/,
+    test: l => { const m = l.match(/set(?:Min|Max)Interval\s*\(\s*(\d+)\s*\)/); return m && +m[1] < 800; },
+    make: l => [l.replace(/(set(?:Min|Max)Interval\s*\(\s*)(\d+)(\s*\))/, '$11600$3').replace(/\/\/.*$/, '') .replace(/\s+$/, '') + '  // 1600 x 0.625 ms = 1 s'] },
+  { id: 'busy', sev: 'medium', title: 'Unbounded busy-wait for Wi-Fi',
+    detail: 'If the access point is missing, this loop keeps the radio searching forever.',
+    estimate: 'Wi-Fi RX/association ≈ 95–100 mA for as long as the loop runs.',
+    behavior: 'Gives up after 5 s; handle the not-connected case afterwards.',
+    re: /while\s*\(\s*WiFi\.status\(\)\s*!=\s*WL_CONNECTED\s*\)\s*delay\s*\(\s*\d+\s*\)\s*;/,
+    make: l => [indentOf(l) + 'for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) delay(250);  // give up after 5 s'] },
+  { id: 'radio', sev: 'medium', title: 'Radio stays on after the last transmit',
+    detail: 'Wi-Fi keeps listening between transmissions unless it is switched off.',
+    estimate: 'Wi-Fi connected idle ≈ 20–30 mA above modem-sleep.',
+    behavior: 'Reconnect (WiFi.begin) before the next transmit.',
+    when: code => /WiFi\.begin/.test(code) && !/WiFi\.(disconnect|mode\s*\(\s*WIFI_OFF)/.test(code),
+    find: lines => lines.findIndex(l => /\bhttp\.end\s*\(\s*\)/.test(l)),
+    make: l => [l, indentOf(l) + 'WiFi.disconnect(true); WiFi.mode(WIFI_OFF);'] }
+];
+
+function proposeChanges(code) {
+  const lines = code.split('\n'), out = [];
+  for (const r of CHANGE_RULES) {
+    if (r.when) {
+      if (!r.when(code)) continue;
+      const i = r.find(lines);
+      if (i < 0) continue;
+      out.push({ i, r });
+    } else {
+      lines.forEach((l, i) => { if (r.re.test(l) && (!r.test || r.test(l))) out.push({ i, r }); });
+    }
+  }
+  return out.map(({ i, r }, k) => ({
+    key: r.id + ':' + (i + 1), id: r.id, sev: r.sev, line: i + 1, del: 1, before: [lines[i]], after: r.make(lines[i]),
+    title: r.title, detail: r.detail, estimate: r.estimate, behavior: r.behavior
+  })).filter(c => c.after.join('\n') !== c.before.join('\n')).sort((a, b) => a.line - b.line);
+}
+
+function applyChanges(code, changes) {
+  const lines = code.split('\n');
+  [...changes].sort((a, b) => b.line - a.line).forEach(c => lines.splice(c.line - 1, c.del, ...c.after));
+  return lines.join('\n');
+}
+
 function analyze(code, board, capacity, interval) {
   const lines = code.split('\n'), found = [], hit = new Set();
   lines.forEach((l, i) => RULES.forEach(r => { if (r.re.test(l)) { hit.add(r.id); found.push({ id: r.id, sev: r.sev, line: i + 1, title: r.t, detail: r.d, snippet: l.trim().slice(0, 90) }); } }));
@@ -82,14 +145,14 @@ function analyze(code, board, capacity, interval) {
   if (/WiFi\.begin/.test(code) && !/WiFi\.(disconnect|mode\s*\(\s*WIFI_OFF)/.test(code)) add('radio', 'medium', 12, 'Radio never switched off', 'Call WiFi.disconnect(true) and WiFi.mode(WIFI_OFF) after the last transmit if you stay awake.');
   const cpu = !/setCpuFrequencyMhz/.test(code);
   if (cpu) add('cpu', 'low', 5, 'CPU left at 240 MHz', 'Light processing runs fine at 80 MHz (the minimum while Wi-Fi is on) and lowers active current.');
-  const w = id => (RULES.find(r => r.id === id) || found.find(f => f.id === id)).w;
+  const changes = proposeChanges(code);
+  changes.forEach(c => { if (!found.some(f => f.id === c.id && (f.line === c.line || f.line == null))) { hit.add(c.id); found.push({ id: c.id, sev: c.sev, line: c.line, title: c.title, detail: c.detail, snippet: c.before[0].trim().slice(0, 90), w: 8 }); } });
+  found.forEach(f => { const c = changes.find(c => c.id === f.id && (f.line == null || c.line === f.line)); if (c) { f.change = c.key; if (f.line == null) f.line = c.line; } });
+  const w = id => ((RULES.find(r => r.id === id) || found.find(f => f.id === id) || {}).w) || 5;
   const score = Math.max(0, 100 - [...hit].reduce((a, id) => a + w(id), 0));
-  let applied = 0;
-  const out = lines.map(l => { const r = RULES.find(r => r.fix && r.re.test(l)); if (r) { applied++; return r.fix(l); } return l; });
-  if (cpu) { const i = out.findIndex(l => /void\s+setup\s*\(\s*\)\s*\{/.test(l)); if (i >= 0) { out.splice(i + 1, 0, '  setCpuFrequencyMhz(80);  // enough for light processing'); applied++; } }
   const high = found.some(f => f.sev === 'high');
   const now = simulate(board, high ? 'standard' : 'optimized', capacity, interval), after = simulate(board, 'optimized', capacity, interval);
-  return { score, findings: found, applied, fixedCode: out.join('\n'),
+  return { score, findings: found, changes, applied: changes.length, fixedCode: applyChanges(code, changes),
     now: { avgMa: now.avgMa, days: now.days }, after: { avgMa: after.avgMa, days: after.days } };
 }
 

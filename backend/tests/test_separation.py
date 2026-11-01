@@ -78,3 +78,14 @@ def test_manual_k_keeps_two_leds_apart_next_to_an_always_on_line():
         assert r["k"] == 3 and len(peaks) == 3
         assert any(abs(p - 36) <= 2 for p in peaks) and any(abs(p - 173) <= 2 for p in peaks)
         assert all(c["current_on_ma"] >= 0 for c in r["components"])
+
+
+def test_manual_k_equal_to_module_count_ignores_noise_floor_pieces():
+    """K = exactly the number of LEDs, no other source: flat noise-floor components from the
+    over-complete fit must not be merged into an LED and move its peak."""
+    mods = [dict(name="LED A", type="pwm", freq_hz=36, current_ma=3),
+            dict(name="LED B", type="pwm", freq_hz=172.7, current_ma=6)]
+    for seed in (0, 4, 7):
+        t, i, v, *_ = separation.simulate_custom(mods, 60, seed, 2000, 0.25, 48)
+        peaks = [round(c["peak_hz"]) for c in separation.separate(t, i, v, 2)["components"] if not c["low_freq"]]
+        assert any(abs(p - 36) <= 2 for p in peaks) and any(abs(p - 173) <= 2 for p in peaks)

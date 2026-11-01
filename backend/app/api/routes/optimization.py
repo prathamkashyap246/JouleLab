@@ -31,3 +31,18 @@ async def suggest(payload: OptimizeRequest, request: Request):
         {"board": payload.board, "measurements": payload.measurements, "constraints": payload.constraints,
          "source_chars": len(payload.source_code)}, data)
     return {"success": True, "report_id": report_id, "report": data}
+
+
+from pydantic import BaseModel, Field  # noqa: E402
+
+from app.services import code_optimizer  # noqa: E402
+
+
+class ProposeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=200_000)
+
+
+@router.post("/propose", summary="Rule-based code changes (VS Code style: line, before, after); no AI")
+async def propose(req: ProposeRequest):
+    changes = code_optimizer.propose(req.code)
+    return {"engine": "rules", "changes": changes, "fixed_code": code_optimizer.apply(req.code, changes)}

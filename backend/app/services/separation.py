@@ -131,6 +131,8 @@ def separate(t_s, current_ma, vbus: float, k: int | None = None, states=None,
         for n_raw in (min(k + 3, 10), min(k + 2, 10), min(k + 4, 10), k):
             W, H, resid = nmf_kl(V, n_raw)
             W, H, K = _merge_coactive(W, H, fk)
+            W, H = _drop_flat(W, H, fk)
+            K = W.shape[1]
             if _n_tonal(W, fk) >= k:
                 break
         while _n_tonal(W, fk) > k:
@@ -259,6 +261,18 @@ def _merge_coactive(W, H, fk, thr: float = 0.35):
     Wn = np.column_stack([W[:, g].sum(axis=1) for g in groups.values()])
     Hn = np.vstack([H[g].sum(axis=0) for g in groups.values()])
     return Wn, Hn, len(groups)
+
+
+FLAT = 2.0   # peak / median below this: a flat noise-floor piece, not a module
+
+
+def _drop_flat(W, H, fk):
+    """Over-complete NMF also fits the noise floor. Those pieces have no peak, carry no module, and
+    would otherwise be merged into a real line and move its reported peak. Drop them."""
+    keep = [j for j in range(W.shape[1]) if _peak(W[:, j], fk)[1] >= FLAT]
+    if not keep or len(keep) == W.shape[1]:
+        return W, H
+    return W[:, keep], H[keep]
 
 
 def _n_tonal(W, fk):
