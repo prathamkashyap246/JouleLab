@@ -179,6 +179,12 @@ def check_board_matches(board: Board, source: str) -> None:
     low = source.lower()
     looks_arduino = any(h in low for h in _ARDUINO_HINTS) or ("void setup(" in low and "void loop(" in low)
     looks_stm32 = any(h in low for h in _STM32_HINTS)
+    arduino_only = any(h in low for h in ("serial.", "string ", "#include <arduino.h>")) or (
+        "void setup(" in low and "void loop(" in low)
+    if board.language == "c" and arduino_only:
+        raise DevError(f"This sketch uses Arduino features (setup/loop, Serial, String), but {board.name} "
+                       "is the plain C (HAL) project. Choose 'STM32 NUCLEO-F446RE (Arduino)' for an Arduino "
+                       "sketch on the NUCLEO, or 'ESP32 DevKit' for ESP32 code. Nothing was saved.", 422)
     if board.language == "c" and looks_arduino and not looks_stm32:
         raise DevError(f"This looks like an Arduino/ESP32 sketch, but the selected board is {board.name}. "
                        "Choose 'ESP32 DevKit' (or 'Arduino Uno R3') in the Board menu. Nothing was saved.", 422)

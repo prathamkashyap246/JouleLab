@@ -34,3 +34,15 @@ def test_stm32_arduino_board_takes_hal_but_not_esp32_code():
         assert False, "ESP32 sketch must be refused on the STM32 Arduino board"
     except DevError as e:
         assert e.status_code == 422
+
+
+def test_arduino_sketch_with_hal_calls_is_refused_on_the_c_nucleo_project():
+    from app.services.platformio_manager import DevError, check_board_matches, get_board
+    src = ("UART_HandleTypeDef huart1;\nString buf;\nvoid setup(){ Serial.begin(115200); HAL_UART_Init(&huart1); }\n"
+           "void loop(){}")
+    try:
+        check_board_matches(get_board("nucleo_f446re"), src)
+        assert False
+    except DevError as e:
+        assert "Arduino" in str(e)
+    check_board_matches(get_board("nucleo_f446re_arduino"), src)
