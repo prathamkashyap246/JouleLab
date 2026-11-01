@@ -35,7 +35,7 @@
       <span class="mono small">2 STATIC CHECK</span>
       <button class="runbtn" id="analyze">Analyze</button>
       <button class="chip2" id="sample">Load sample</button>
-      <button class="chip2" id="apply" disabled>Apply suggested fixes</button>
+      <button class="chip2" id="apply" disabled>Accept all changes</button>
       <button class="chip2" id="undo" disabled>Undo</button>
       <button class="chip2" id="copy">Copy</button>
       <button class="chip2" id="download">Download .ino</button>
@@ -48,7 +48,7 @@
       <span id="status" class="small"></span>
     </div>
     <div class="wsgrid">
-      <div class="ed"><div class="gut mono" id="gut">1</div><textarea id="code" class="mono" spellcheck="false" placeholder="// paste an ESP32 Arduino sketch, or press Load sample"></textarea></div>
+      <div class="ed"><div class="gut mono" id="gut">1</div><div class="ed-body" id="edbody"><div class="ed-hl" id="edhl" aria-hidden="true"></div><textarea id="code" class="mono" spellcheck="false" wrap="off" placeholder="// paste an ESP32 Arduino sketch, or press Load sample"></textarea><div class="peek" id="peek" hidden></div></div></div>
       <div class="res">
         <div class="score"><b id="score">–</b><div><p class="mono small">RULE SCORE / 100</p><p id="verdict">No analysis yet.</p></div></div>
         <div class="rt"><div><p class="mono small">SIM · RUNTIME NOW</p><b id="dnow">–</b></div><div><p class="mono small">SIM · IF ALL FIXED</p><b id="dafter">–</b></div></div>
@@ -56,6 +56,19 @@
         <p class="mono small foot2">Static pattern check, not a profiler. Runtime figures come from the simulator model. Review every fix, then measure on hardware.</p>
         <div class="ai-block"><span class="mono small">OPTIONAL · LLM</span><button class="chip2" id="ai">Code suggestions (LLM, unverified)</button><div id="ai-out"></div></div>
       </div>
+    </div>
+    <div class="ba" id="ba">
+      <div class="ba-head"><div><p class="mono small">BEFORE / AFTER ON HARDWARE</p>
+        <p class="ba-lead">Record a session in Lab → Live hardware with the original code, accept the changes above, re-flash, record another session. Compare them here. A second recording of the original code shows the run-to-run noise.</p></div></div>
+      <div class="ba-pick mono">
+        <label>Before <select id="ba-a"></select></label>
+        <label>After <select id="ba-b"></select></label>
+        <label>Repeat of before (optional) <select id="ba-r"></select></label>
+        <label>Modules (K) <select id="ba-k"><option value="">auto</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+        <button class="runbtn" id="ba-run">Compare <span>▶</span></button>
+        <button class="chip2" id="ba-refresh" type="button">Refresh list</button>
+      </div>
+      <div id="ba-out" class="ba-out"><p class="mono small">No comparison yet.</p></div>
     </div>
     <div class="console" id="console">
       <div class="ctabs">

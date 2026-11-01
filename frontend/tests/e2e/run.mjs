@@ -93,7 +93,7 @@ const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
   await check('workspace: Verify succeeds and streams output', async () => {
     await page.goto(site + '/workspace', { waitUntil: 'networkidle' });
-    await page.waitForFunction(() => document.querySelectorAll('#devboard option').length === 3);
+    await page.waitForFunction(() => document.querySelectorAll('#devboard option').length >= 3);
     await page.selectOption('#devboard', 'nucleo_f446re'); await page.click('#openproj'); await sleep(300);
     await page.click('#verify'); await page.waitForSelector('#jobstate.js-succeeded', { timeout: 15000 });
     expect(/Processing nucleo_f446re/.test(await page.textContent('#con-out')), 'no build output');

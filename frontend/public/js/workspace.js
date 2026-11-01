@@ -23,17 +23,79 @@ void loop() {
 `;
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const days = d => d >= 365 ? (d / 365).toFixed(1) + ' yr' : d.toFixed(1) + ' d';
-let hot = new Set(), last = null, prev = null, timer;
+let hot = new Set(), last = null, timer, peekKey = null;
+const undoStack = [], dismissed = new Set();
+const LH = 20, PAD = 10;                       // editor line height and top padding (must match CSS)
+const hl = $('edhl'), peek = $('peek');
 
 function gutter() {
-  const n = ed.value.split('\n').length;
-  gut.innerHTML = Array.from({ length: n }, (_, i) => `<span class="${hot.has(i + 1) ? 'hot' : ''}">${i + 1}</span>`).join('\n');
+  const n = ed.value.split('\n').length, ch = new Map((last ? last.changes : []).filter(c => !dismissed.has(c.key)).map(c => [c.line, c]));
+  gut.innerHTML = Array.from({ length: n }, (_, i) => ch.has(i + 1)
+    ? `<span class="hot chg" data-k="${ch.get(i + 1).key}" title="Proposed change: click to view">${i + 1}</span>`
+    : `<span class="${hot.has(i + 1) ? 'hot' : ''}">${i + 1}</span>`).join('\n');
   gut.scrollTop = ed.scrollTop;
 }
+// light-red bands behind the flagged lines (VS Code "removed line" style)
+function paintLines() {
+  const cs = last ? last.changes.filter(c => !dismissed.has(c.key)) : [];
+  hl.innerHTML = cs.map(c => `<div class="hl-del${c.key === peekKey ? ' on' : ''}" style="top:${PAD + (c.line - 1) * LH}px;height:${c.del * LH}px"></div>`).join('');
+  hl.style.transform = `translate(${-ed.scrollLeft}px,${-ed.scrollTop}px)`;
+  if (peekKey) placePeek();
+}
+function changeByKey(k) { return last && last.changes.find(c => c.key === k); }
+function placePeek() {
+  const c = changeByKey(peekKey); if (!c) return closePeek();
+  const top = PAD + (c.line - 1 + c.del) * LH - ed.scrollTop + 4, box = $('edbody').clientHeight;
+  peek.style.top = Math.max(4, Math.min(top, box - peek.offsetHeight - 6)) + 'px';
+}
+function openPeek(k) {
+  const c = changeByKey(k); if (!c) return;
+  peekKey = k;
+  const row = (sign, cls, t) => `<div class="pk-row ${cls}"><span class="pk-sign">${sign}</span><span class="pk-code">${esc(t) || ' '}</span></div>`;
+  peek.innerHTML = `<div class="pk-head"><span class="mono small pk-sev ${c.sev}">${c.sev.toUpperCase()} · LINE ${c.line}</span><b>${esc(c.title)}</b>
+      <button class="pk-x" id="pk-x" title="Close (Esc)">×</button></div>
+    <div class="pk-diff mono">${diffRows(c, row)}</div>
+    <p class="pk-why">${esc(c.detail)}</p>
+    <p class="pk-meta mono"><span>Estimate</span>${esc(c.estimate)}</p>
+    <p class="pk-meta mono"><span>Behaviour</span>${esc(c.behavior)}</p>
+    <div class="pk-btns"><button class="devbtn" id="pk-accept">Accept change</button><button class="chip2" id="pk-dismiss">Dismiss</button>
+      <span class="mono small">${last.changes.filter(x => !dismissed.has(x.key)).length} proposed</span></div>`;
+  peek.hidden = false;
+  placePeek(); paintLines();
+  $('pk-x').onclick = closePeek;
+  $('pk-accept').onclick = () => acceptChange(c);
+  $('pk-dismiss').onclick = () => { dismissed.add(c.key); closePeek(); gutter(); paintLines(); };
+}
+// unchanged lines at the start/end of a change are shown as plain context, like VS Code
+function diffRows(c, row) {
+  const b = c.before, a = c.after; let p = 0, q = 0;
+  while (p < b.length && p < a.length && b[p] === a[p]) p++;
+  while (q < b.length - p && q < a.length - p && b[b.length - 1 - q] === a[a.length - 1 - q]) q++;
+  return b.slice(0, p).map(t => row(' ', 'pk-ctx', t)).join('')
+    + b.slice(p, b.length - q).map(t => row('−', 'pk-del', t)).join('')
+    + a.slice(p, a.length - q).map(t => row('+', 'pk-add', t)).join('')
+    + b.slice(b.length - q).map(t => row(' ', 'pk-ctx', t)).join('');
+}
+function closePeek() { peekKey = null; peek.hidden = true; paintLines(); }
+function pushUndo() { undoStack.push(ed.value); if (undoStack.length > 50) undoStack.shift(); $('undo').disabled = false; }
+function acceptChange(c) {
+  pushUndo();
+  const ls = ed.value.split('\n');
+  ls.splice(c.line - 1, c.del, ...c.after);
+  ed.value = ls.join('\n');
+  closePeek(); analyze().then(() => {               // walk to the next proposal, like "next change" in VS Code
+    const nxt = last && last.changes.find(x => !dismissed.has(x.key) && x.line >= c.line);
+    $('status').textContent = `Accepted: ${c.title}.` + (nxt ? ' Next proposal shown.' : '');
+    if (nxt) { scrollToLine(nxt.line); openPeek(nxt.key); }
+  });
+}
+function scrollToLine(l) { ed.scrollTop = Math.max(0, (l - 4) * LH); gut.scrollTop = ed.scrollTop; paintLines(); }
 function goto(l) {
   const ls = ed.value.split('\n'), start = ls.slice(0, l - 1).join('\n').length + (l > 1 ? 1 : 0);
-  ed.focus(); ed.setSelectionRange(start, start + ls[l - 1].length); ed.scrollTop = Math.max(0, (l - 4) * 22);
+  ed.focus(); ed.setSelectionRange(start, start + ls[l - 1].length); scrollToLine(l);
 }
+function lineAtCaret() { return ed.value.slice(0, ed.selectionStart).split('\n').length; }
+
 async function analyze() {
   if (!ed.value.trim()) { $('status').textContent = '[WARN] editor empty'; return; }
   $('status').textContent = '[ .. ] analyzing';
@@ -41,27 +103,102 @@ async function analyze() {
     const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: ed.value, board: $('board').value, interval: +$('interval').value, capacity: +$('capacity').value }) }).then(r => r.json());
     if (r.error) throw new Error(r.error);
-    last = r; hot = new Set(r.findings.filter(f => f.line).map(f => f.line)); gutter();
+    last = r; hot = new Set(r.findings.filter(f => f.line).map(f => f.line));
+    [...dismissed].forEach(k => { if (!r.changes.some(c => c.key === k)) dismissed.delete(k); });
+    if (peekKey && !changeByKey(peekKey)) closePeek();
+    gutter(); paintLines();
     $('score').textContent = r.score;
     $('score').style.color = r.score >= 80 ? '#2e7d32' : r.score >= 50 ? '#b26a00' : '#c62828';
     $('verdict').textContent = r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : '0 findings';
     $('dnow').textContent = days(r.now.days); $('dafter').textContent = days(r.after.days);
-    $('finds').innerHTML = r.findings.map(f => `<div class="find ${f.sev}"><span class="mono small">${f.sev.toUpperCase()}${f.line ? ' · LINE ' + f.line : ''}</span><b>${esc(f.title)}</b><p>${esc(f.detail)}</p>${f.snippet ? `<code class="mono">${esc(f.snippet)}</code>` : ''}${f.line ? `<button class="chip2" data-l="${f.line}">Go to line</button>` : ''}</div>`).join('');
-    $('apply').disabled = !r.applied; $('status').textContent = r.applied ? `[ OK ] ${r.findings.length} findings · ${r.applied} automatic fix${r.applied > 1 ? 'es' : ''} available` : `[ OK ] ${r.findings.length} findings`;
+    $('finds').innerHTML = r.findings.map(f => `<div class="find ${f.sev}"><span class="mono small">${f.sev.toUpperCase()}${f.line ? ' · LINE ' + f.line : ''}</span><b>${esc(f.title)}</b><p>${esc(f.detail)}</p>${f.snippet ? `<code class="mono">${esc(f.snippet)}</code>` : ''}${f.change && !dismissed.has(f.change) ? `<button class="chip2" data-k="${f.change}">Show change</button>` : ''}${f.line ? `<button class="chip2" data-l="${f.line}">Go to line</button>` : ''}</div>`).join('');
+    const open = r.changes.filter(c => !dismissed.has(c.key)).length;
+    $('apply').disabled = !open;
+    $('status').textContent = open ? `[ OK ] ${r.findings.length} findings · ${open} proposed change${open > 1 ? 's' : ''} (red lines; click one to review)` : `[ OK ] ${r.findings.length} findings`;
   } catch (e) { $('status').textContent = '[FAIL] ' + e.message; }
 }
-$('finds').addEventListener('click', e => { const l = e.target.dataset.l; if (l) goto(+l); });
+$('finds').addEventListener('click', e => {
+  const k = e.target.dataset.k, l = e.target.dataset.l;
+  if (k) { const c = changeByKey(k); if (c) { scrollToLine(c.line); openPeek(k); } }
+  else if (l) goto(+l);
+});
+gut.addEventListener('click', e => { const k = e.target.dataset && e.target.dataset.k; if (k) openPeek(k); });
+ed.addEventListener('click', () => {
+  if (!last) return;
+  const l = lineAtCaret(), c = last.changes.find(c => !dismissed.has(c.key) && l >= c.line && l < c.line + c.del);
+  if (c) openPeek(c.key); else if (peekKey) closePeek();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && peekKey) closePeek(); });
 $('analyze').onclick = analyze;
-$('sample').onclick = () => { ed.value = SAMPLE; gutter(); analyze(); };
-$('apply').onclick = () => { if (!last) return; prev = ed.value; ed.value = last.fixedCode; $('undo').disabled = false; gutter(); analyze(); };
-$('undo').onclick = () => { if (prev == null) return; ed.value = prev; prev = null; $('undo').disabled = true; gutter(); analyze(); };
+$('sample').onclick = () => { ed.value = SAMPLE; dismissed.clear(); gutter(); analyze(); };
+$('apply').onclick = () => {
+  if (!last) return;
+  const cs = last.changes.filter(c => !dismissed.has(c.key)); if (!cs.length) return;
+  pushUndo();
+  const ls = ed.value.split('\n');
+  [...cs].sort((a, b) => b.line - a.line).forEach(c => ls.splice(c.line - 1, c.del, ...c.after));
+  ed.value = ls.join('\n'); closePeek(); gutter(); analyze().then(() => { $('status').textContent = `Accepted ${cs.length} change${cs.length > 1 ? 's' : ''}. Undo restores the previous code.`; });
+};
+$('undo').onclick = () => { if (!undoStack.length) return; ed.value = undoStack.pop(); $('undo').disabled = !undoStack.length; closePeek(); gutter(); analyze(); };
 $('copy').onclick = () => navigator.clipboard.writeText(ed.value).then(() => { $('status').textContent = '[ OK ] copied'; });
 $('download').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ed.value], { type: 'text/plain' })); a.download = 'sketch.ino'; a.click(); };
-$('clear').onclick = () => { ed.value = ''; hot.clear(); last = null; gutter(); $('finds').innerHTML = ''; $('score').textContent = '–'; $('dnow').textContent = $('dafter').textContent = '–'; $('verdict').textContent = 'No analysis yet.'; $('apply').disabled = true; };
-ed.addEventListener('input', () => { gutter(); clearTimeout(timer); timer = setTimeout(analyze, 700); });
-ed.addEventListener('scroll', () => { gut.scrollTop = ed.scrollTop; });
+$('clear').onclick = () => { ed.value = ''; hot.clear(); last = null; dismissed.clear(); closePeek(); gutter(); $('finds').innerHTML = ''; $('score').textContent = '–'; $('dnow').textContent = $('dafter').textContent = '–'; $('verdict').textContent = 'No analysis yet.'; $('apply').disabled = true; };
+ed.addEventListener('input', () => { if (peekKey) closePeek(); gutter(); paintLines(); clearTimeout(timer); timer = setTimeout(analyze, 700); });
+ed.addEventListener('scroll', () => { gut.scrollTop = ed.scrollTop; paintLines(); });
 ['board', 'interval', 'capacity'].forEach(id => $(id).addEventListener('change', analyze));
 gutter();
+
+// ---- Before / after on hardware: two recorded sessions, compared with a noise check ----
+async function baSessions() {
+  const opts = (sel, list, none) => { const v = $(sel).value; $(sel).innerHTML = (none ? '<option value="">—</option>' : '') + list.map(s => `<option value="${s.id}">#${s.id} ${esc(s.name || '')}${s.status === 'active' ? ' (recording)' : ''}</option>`).join(''); if (v) $(sel).value = v; };
+  try {
+    const d = await fetch('/backend/api/sessions?limit=50').then(r => { if (!r.ok) throw new Error('Backend not reachable.'); return r.json(); });
+    const list = d.sessions.filter(s => s.status !== 'active');
+    opts('ba-a', list); opts('ba-b', list); opts('ba-r', list, true);
+    if (list.length >= 2 && !$('ba-a').dataset.init) { $('ba-a').value = list[1].id; $('ba-b').value = list[0].id; $('ba-a').dataset.init = '1'; }
+    if (!list.length) $('ba-out').innerHTML = '<p class="mono small">No finished sessions yet. Record them in Lab → Live hardware.</p>';
+  } catch (e) { $('ba-out').innerHTML = `<p class="mono small">${esc(e.message)}</p>`; }
+}
+async function baCompareApi(before, after, k) {
+  const r = await fetch(`/backend/api/sessions/compare?before=${before}&after=${after}${k ? '&k=' + k : ''}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Compare failed (' + r.status + ').');
+  return d;
+}
+async function baCompare() {
+  const a = $('ba-a').value, b = $('ba-b').value, r = $('ba-r').value, k = +($('ba-k') ? $('ba-k').value : 0) || null;
+  if (!a || !b || a === b) { $('ba-out').innerHTML = '<p class="mono small">[WARN] choose two different sessions</p>'; return; }
+  $('ba-out').innerHTML = '<p class="mono small">computing…</p>';
+  try {
+    const [d, rep] = await Promise.all([baCompareApi(a, b, k), r && r !== a ? baCompareApi(a, r) : null]);
+    const A = d.before, B = d.after, cap = +$('capacity').value || 2000;
+    const life = x => days(cap * 0.76 / x.average_current_ma / 24);
+    const fp = v => v == null ? '–' : (v > 0 ? '+' : '') + v.toFixed(1) + ' %';
+    const pct = (x, y) => (y / x - 1) * 100;
+    const repDiff = rep ? Math.abs(rep.delta_power_mw) : null;
+    const real = d.significant && (repDiff == null || Math.abs(d.delta_power_mw) > 3 * repDiff);
+    const cls = (x, y) => y < x ? 'good' : y > x ? 'bad' : '';
+    const row = (lab, x, y, fmt) => `<tr><td>${lab}</td><td>${fmt(x)}</td><td>${fmt(y)}</td><td class="${cls(x, y)}">${fp(pct(x, y))}</td></tr>`;
+    const mods = d.modules ? `<p class="mono small ba-sub">PER MODULE · MODULE SEPARATION, CURRENT WHILE ON</p>
+      <table class="ba-t mono"><thead><tr><th>Signature</th><th>Before</th><th>After</th><th>Change</th></tr></thead><tbody>${d.modules.map(m => {
+        const x = m.before, y = m.after, lab = x && x.in_baseline || y && y.in_baseline ? ' (always-on)' : '';
+        const v = o => o ? o.current_on_ma.toFixed(2) + ' mA' : 'not found';
+        return `<tr><td>${m.peak_hz.toFixed(1)} Hz${lab}</td><td>${v(x)}</td><td>${v(y)}</td><td>${m.delta_current_on_ma == null ? '–' : (m.delta_current_on_ma > 0 ? '+' : '') + m.delta_current_on_ma.toFixed(2) + ' mA'}</td></tr>`; }).join('')}</tbody></table>`
+      : `<p class="mono small">${esc(d.modules_note || '')}</p>`;
+    $('ba-out').innerHTML = `<table class="ba-t mono"><thead><tr><th></th><th>Before #${A.id} ${esc(A.name)}</th><th>After #${B.id} ${esc(B.name)}</th><th>Change</th></tr></thead><tbody>
+      ${row('Average power', A.average_power_mw, B.average_power_mw, v => v.toFixed(1) + ' mW')}
+      ${row('Average current', A.average_current_ma, B.average_current_ma, v => v.toFixed(2) + ' mA')}
+      ${row('Energy per minute', A.energy_per_min_mj, B.energy_per_min_mj, v => (v / 1000).toFixed(2) + ' J')}
+      <tr><td>Battery life (${cap} mAh, 76 % usable)</td><td>${life(A)}</td><td>${life(B)}</td><td></td></tr>
+      <tr><td>Recorded</td><td>${A.duration_s.toFixed(0)} s · ${A.windows} × 5 s</td><td>${B.duration_s.toFixed(0)} s · ${B.windows} × 5 s</td><td></td></tr></tbody></table>
+      <p class="ba-verdict ${real ? 'good' : 'warn'} mono">${real ? '[ OK ]' : '[WARN]'} ${esc(d.verdict)}${repDiff != null ? ` · repeat of before differed by ${repDiff.toFixed(1)} mW` : ''}</p>
+      ${mods}
+      <p class="mono small">Average power, not total energy: the sessions have different lengths. Noise = 3 × standard error of the 5 s window means.</p>`;
+  } catch (e) { $('ba-out').innerHTML = `<p class="mono small">[FAIL] ${esc(e.message)}</p>`; }
+}
+$('ba-run').onclick = baCompare;
+$('ba-refresh').onclick = baSessions;
+baSessions();
 
 // ---- AI suggestions (FastAPI backend via /backend proxy) ----
 // Sends the sketch plus any live per-function measurements the backend has collected.
