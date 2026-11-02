@@ -1,5 +1,6 @@
 # JouleLab: STM32 NUCLEO-F446RE live energy profiling
 
+**SoundPay** is a contactless *payment prototype* that moves data over sound instead of NFC or a card reader. A shop terminal broadcasts an encoded payment code through its speaker in the near-ultrasonic band (15 to 19.5 kHz), the customer’s phone hears it with its microphone, shows the shop and amount, and approves the payment with a passkey. To resist jamming, the terminal uses a keyed frequency-hopping modem: 96 tone channels, a hop every 64 ms, a fresh hop pattern for each broadcast, Reed-Solomon error correction, and a receiver that learns which channels are noisy and avoids them. Hopping protects against jammers, not against insiders, and payments run in Stripe test mode. So far it has been tested in simulation and on a laptop speaker with a real phone, in both a silent room and room with decent noise and disturbance to test the ability of the system to catch frequencies with external noise present.
 ```
 STM32F446RE + INA219 ──I2C──> firmware ──USART2 (PA2/PA3)──> ST-LINK USB virtual COM port
    ──> backend (FastAPI): PySerial reader → packet decoder → energy engine → SQLite
